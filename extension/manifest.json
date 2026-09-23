@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Worthwhile",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Filters your YouTube home feed down to the videos worth your time.",
   "permissions": ["storage"],
   "host_permissions": [
@@ -14,7 +14,7 @@
   "content_scripts": [
     {
       "matches": ["https://www.youtube.com/*"],
-      "js": ["settings.js", "selectors.js", "content.js"],
+      "js": ["settings.js", "selectors.js", "common.js", "notinterested.js", "content.js", "watch.js", "shorts.js"],
       "css": ["styles.css"],
       "run_at": "document_start"
     }

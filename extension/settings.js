@@ -28,3 +28,29 @@ const SETTINGS_LIMITS = {
 function loadSettings() {
   return chrome.storage.sync.get(DEFAULT_SETTINGS);
 }
+
+// Things remembered on this device only (chrome.storage.local), never synced:
+//   openedChannels: channels of videos opened from the grid, newest first.
+//     Sourcing searches their latest uploads. [{ id?: "UC...", handle?: "@x", name }]
+//   notInterested: video IDs we told YouTube "Not interested" about.
+const LOCAL_DEFAULTS = { openedChannels: [], notInterested: [] };
+const MAX_OPENED_CHANNELS = 20;
+const MAX_NOT_INTERESTED = 1000;
+
+function loadLocal() {
+  return chrome.storage.local.get(LOCAL_DEFAULTS);
+}
+
+async function rememberChannel(channel) {
+  if (!channel || (!channel.id && !channel.handle)) return;
+  const { openedChannels } = await loadLocal();
+  const same = (c) => (channel.id && c.id === channel.id) || (channel.handle && c.handle === channel.handle);
+  const next = [channel, ...openedChannels.filter((c) => !same(c))].slice(0, MAX_OPENED_CHANNELS);
+  await chrome.storage.local.set({ openedChannels: next });
+}
+
+async function rememberNotInterested(videoId) {
+  const { notInterested } = await loadLocal();
+  if (notInterested.includes(videoId)) return;
+  await chrome.storage.local.set({ notInterested: [videoId, ...notInterested].slice(0, MAX_NOT_INTERESTED) });
+}

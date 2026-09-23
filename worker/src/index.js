@@ -2,8 +2,9 @@
 //
 // HTTP entry point.
 //   POST /score   score a batch of feed items (needs an invite token)
+//   POST /source  find extra approved videos for the grid (needs an invite token)
 //   GET  /health  liveness check, no token needed
-// Plus a daily cron (wrangler.toml) that deletes expired score-cache rows.
+// Plus a daily cron (wrangler.toml) that deletes expired cache rows.
 //
 // POST /score
 //   Authorization: Bearer <invite token>
@@ -11,18 +12,27 @@
 //     "items": [{ "id": "<11-char video ID>", "title": "...", "channel": "...", "duration": "12:03" }] }
 // → 200 { "results": { "<id>": { "verdict": "show" | "hide", "scores": {...} | null } },
 //         "cached": n, "scored": n, "unscored": n }
-//   401 bad or missing token, 400 bad request, 503 database unavailable.
+//
+// POST /source
+//   Authorization: Bearer <invite token>
+//   { "profile": { ...as above }, "channels": [{ "id": "UC..." } | { "handle": "@name" }] }
+// → 200 { "items": [{ "id", "title", "channel", "channelId", "duration", "source" }], ... }
+//   source is "channel" or "interest:<interest>". Only approved videos are returned.
+//
+// Errors: 401 bad or missing token, 400 bad request, 503 database unavailable.
 
 import { deleteExpiredScores, scoreItems, sha256Hex } from './score.js';
+import { deleteExpiredSearches, sourceItems } from './source.js';
 
 const LIMITS = {
-  items: 60, // per request (up to 3 model calls)
+  items: 60, // per /score request (up to 3 model calls)
   title: 300,
   channel: 150,
   duration: 12,
   rubric: 5000,
   interests: 30,
   interest: 80,
+  channels: 20, // per /source request
 };
 
 export default {
@@ -30,9 +40,9 @@ export default {
     const { pathname } = new URL(request.url);
     try {
       if (pathname === '/health') return json({ ok: true });
-      if (pathname === '/score') {
+      if (pathname === '/score' || pathname === '/source') {
         if (request.method !== 'POST') return json({ error: 'Use POST' }, 405);
-        return await handleScore(request, env, ctx);
+        return await handle(pathname, request, env, ctx);
       }
       return json({ error: 'Not found' }, 404);
     } catch (err) {
@@ -42,21 +52,21 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(deleteExpiredScores(env));
+    ctx.waitUntil(Promise.all([deleteExpiredScores(env), deleteExpiredSearches(env)]));
   },
 };
 
-async function handleScore(request, env, ctx) {
-  let tokenOk;
+async function handle(pathname, request, env, ctx) {
+  let tokenHash;
   try {
-    tokenOk = await isValidInvite(request, env);
+    tokenHash = await checkInvite(request, env);
   } catch (err) {
     // Can't check the token (D1 down or over its daily limit). The extension
     // treats any non-200 as "show everything".
     console.error('Invite check failed:', err?.message);
     return json({ error: 'Service unavailable' }, 503);
   }
-  if (!tokenOk) return json({ error: 'Invalid or missing invite token' }, 401);
+  if (!tokenHash) return json({ error: 'Invalid or missing invite token' }, 401);
 
   let body;
   try {
@@ -64,7 +74,7 @@ async function handleScore(request, env, ctx) {
   } catch {
     return json({ error: 'Body must be JSON' }, 400);
   }
-  const problem = checkBody(body);
+  const problem = checkProfile(body?.profile) || (pathname === '/score' ? checkItems(body.items) : checkChannels(body.channels));
   if (problem) return json({ error: problem }, 400);
 
   const profile = {
@@ -72,28 +82,34 @@ async function handleScore(request, env, ctx) {
     interests: body.profile.interests.map((i) => i.trim()).filter(Boolean),
     strictness: body.profile.strictness,
   };
+
+  if (pathname === '/source') {
+    const channels = (body.channels || []).map((c) => (c.id ? { id: c.id } : { handle: c.handle }));
+    return json(await sourceItems(env, ctx, profile, channels, tokenHash));
+  }
+
   const items = body.items.map((item) => ({
     id: item.id,
     title: item.title.trim(),
     channel: (item.channel || '').trim(),
     duration: (item.duration || '').trim(),
   }));
-
   return json(await scoreItems(env, ctx, profile, items));
 }
 
-// Only the SHA-256 of each token is stored (see schema.sql).
-async function isValidInvite(request, env) {
+// Returns the token's SHA-256 if it's a valid invite, otherwise null.
+// Only hashes are stored (see schema.sql).
+async function checkInvite(request, env) {
   const header = request.headers.get('authorization') || '';
   const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
-  if (!token || token.length > 200) return false;
-  const row = await env.DB.prepare('SELECT 1 FROM invites WHERE token_hash = ?').bind(await sha256Hex(token)).first();
-  return row !== null;
+  if (!token || token.length > 200) return null;
+  const hash = await sha256Hex(token);
+  const row = await env.DB.prepare('SELECT 1 FROM invites WHERE token_hash = ?').bind(hash).first();
+  return row ? hash : null;
 }
 
-// Returns a message describing the first problem, or null if the body is fine.
-function checkBody(body) {
-  const profile = body?.profile;
+// Each check returns a message describing the first problem, or null if fine.
+function checkProfile(profile) {
   if (!profile || typeof profile !== 'object') return 'Missing profile';
   if (typeof profile.rubric !== 'string' || !profile.rubric.trim()) return 'profile.rubric must be a non-empty string';
   if (profile.rubric.length > LIMITS.rubric) return `profile.rubric is over ${LIMITS.rubric} characters`;
@@ -106,8 +122,10 @@ function checkBody(body) {
   if (!Number.isInteger(profile.strictness) || profile.strictness < 1 || profile.strictness > 5) {
     return 'profile.strictness must be a whole number from 1 to 5';
   }
+  return null;
+}
 
-  const items = body.items;
+function checkItems(items) {
   if (!Array.isArray(items) || items.length === 0 || items.length > LIMITS.items) {
     return `items must be a list of 1 to ${LIMITS.items}`;
   }
@@ -122,6 +140,17 @@ function checkBody(body) {
     if (item.duration != null && (typeof item.duration !== 'string' || item.duration.length > LIMITS.duration)) {
       return 'duration must be short text like "12:03"';
     }
+  }
+  return null;
+}
+
+function checkChannels(channels) {
+  if (channels == null) return null;
+  if (!Array.isArray(channels) || channels.length > LIMITS.channels) return `channels must be a list of up to ${LIMITS.channels}`;
+  for (const c of channels) {
+    const okId = typeof c?.id === 'string' && /^UC[A-Za-z0-9_-]{22}$/.test(c.id);
+    const okHandle = typeof c?.handle === 'string' && /^@[\w.-]{1,100}$/.test(c.handle);
+    if (!okId && !okHandle) return 'Each channel needs an id ("UC...") or a handle ("@name")';
   }
   return null;
 }

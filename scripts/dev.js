@@ -45,12 +45,17 @@ async function main() {
     run('npm', ['install', '--no-fund', '--no-audit']);
   }
 
-  // The API key is a Windows user environment variable. A terminal opened
-  // before it was set can't see it, so fall back to reading it directly.
+  // The API keys are Windows user environment variables. A terminal opened
+  // before they were set can't see them, so fall back to reading them directly.
   const env = { ...process.env };
-  if (!env.ANTHROPIC_API_KEY) env.ANTHROPIC_API_KEY = readWindowsUserEnv('ANTHROPIC_API_KEY');
+  for (const name of ['ANTHROPIC_API_KEY', 'YOUTUBE_API_KEY']) {
+    if (!env[name]) env[name] = readWindowsUserEnv(name);
+  }
   if (!env.ANTHROPIC_API_KEY) {
     console.warn('Warning: ANTHROPIC_API_KEY is not set. The Worker will start, but nothing can be scored, so every video will be shown.');
+  }
+  if (!env.YOUTUBE_API_KEY) {
+    console.warn('Note: YOUTUBE_API_KEY is not set, so sourcing is off (the grid shows only your own feed).');
   }
 
   step('Preparing the local database and invite token');

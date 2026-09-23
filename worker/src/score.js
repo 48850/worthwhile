@@ -14,9 +14,12 @@ import { BATCH_SIZE, buildRequest, cacheFingerprint, parseScores, verdictFor } f
 
 const CACHE_SECONDS = 7 * 24 * 60 * 60;
 
-// profile: { rubric, interests, strictness }, items: [{ id, title, channel, duration }]
+// profile: { rubric, interests, strictness },
+// items: [{ id, title, channel, duration, description? }]
+// maxNew: score at most this many uncached items with the model (the rest
+// come back unscored; sourcing uses this to spread the cost over calls).
 // Returns { results: { [id]: { verdict, scores } }, cached, scored, unscored }.
-export async function scoreItems(env, ctx, profile, items) {
+export async function scoreItems(env, ctx, profile, items, { maxNew = Infinity } = {}) {
   const profileHash = await sha256Hex(cacheFingerprint(profile));
   const now = Math.floor(Date.now() / 1000);
 
@@ -24,7 +27,7 @@ export async function scoreItems(env, ctx, profile, items) {
   const cached = scores.size;
   const missing = items.filter((item) => !scores.has(item.id));
 
-  const fresh = await scoreWithModel(env, profile, missing);
+  const fresh = await scoreWithModel(env, profile, missing.slice(0, maxNew));
   for (const [id, s] of fresh) scores.set(id, s);
   if (fresh.size) ctx.waitUntil(writeCache(env, profileHash, fresh, now)); // don't make the user wait for the write
 
@@ -117,7 +120,8 @@ async function scoreWithModel(env, profile, items) {
   return result;
 }
 
-// Daily cron: remove cache rows older than 7 days (keeps D1 small).
+// Daily cron: remove score-cache rows older than 7 days (keeps D1 small).
+// (source.js has its own clean-up for search results and quota rows.)
 export async function deleteExpiredScores(env) {
   const cutoff = Math.floor(Date.now() / 1000) - CACHE_SECONDS;
   const { meta } = await env.DB.prepare('DELETE FROM scores WHERE scored_at < ?').bind(cutoff).run();

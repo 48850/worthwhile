@@ -14,8 +14,8 @@ science, literature, theatre), and measures whether sessions felt worth it.
   Both misses were bait shown (Top Gear Classic compilation, CrunchLabs), with
   no good videos hidden. At strictness 3 the same scores gave 96.7%, a one-row
   difference, so the setting stays at 2. M1 PASSED.
-- M2 (extension MVP): built 2026-09-23, waiting for the user's manual test on
-  signed-in YouTube. Automated checks passed:
+- M2 (extension MVP): built 2026-09-23; the user confirmed it works on their
+  real signed-in feed. Automated checks passed:
   - Worker against a mock API: auth, validation, D1 cache, strictness,
     re-scoring, 3 batches in parallel, model failure, expiry cron.
   - Content script on a mock home page: hiding, grid, hold, late-filled
@@ -25,7 +25,19 @@ science, literature, theatre), and measures whether sessions felt worth it.
   Not yet verified: the real YouTube home feed. In particular, whether
   YouTube's spinner loads the next page when our grid is shorter than the
   window (the test browser couldn't repaint without input).
-- M3 onwards: not started. Wait for go-ahead after each milestone.
+- M3 (sourcing, sidebar, Shorts, Hidden drawer): built 2026-09-23, waiting for
+  the user's manual test. Automated checks passed:
+  - Worker /source against mock YouTube + mock Claude: per-call search cap,
+    24h query cache, handle lookup once, channel-first round-robin,
+    medium/long only, approved only, stale fallback when the budget is out,
+    per-tester cap, unit counting, validation.
+  - Mock pages: sourced mixing and label, Hidden drawer, "Tell YouTube"
+    (10 cap, 1-3 s gaps, Stop, missing-option stop, never automatic), sidebar
+    filter, channel recording with a stale-page guard, Shorts auto-skip with
+    the 5-in-a-row pause, popup channel list.
+  Not yet verified on real YouTube: "Not interested" itself (only exists when
+  signed in), sourcing with a real YouTube key, Shorts on a signed-in account.
+- M4 onwards: not started. Wait for go-ahead after each milestone.
 
 ## Hard constraints
 - Extension in plain JavaScript, NO bundler or build step. The /extension folder
@@ -48,9 +60,14 @@ science, literature, theatre), and measures whether sessions felt worth it.
 ## Repo layout
 /extension   manifest.json, content.js, selectors.js, background.js,
              popup.html, popup.js, options.html, options.js, styles.css,
-             settings.js (defaults + loadSettings, shared by all parts),
+             settings.js (defaults + loadSettings, and the device-only lists
+               openedChannels / notInterested, shared by all parts),
              chips.js (interests editor used by popup and options),
-             ui.css (popup/options styles; styles.css is injected into YouTube)
+             ui.css (popup/options styles; styles.css is injected into YouTube),
+             common.js (helpers shared by the content scripts, prefixed ww),
+             notinterested.js (YouTube "Not interested" via the card's ⋮ menu),
+             watch.js (/watch sidebar filter + records opened channels),
+             shorts.js (/shorts auto-skip)
 /worker      src/index.js (HTTP, auth, validation), src/score.js (cache + model),
              src/source.js (M3), wrangler.toml, schema.sql, dev.js (local run),
              package.json (wrangler + SDK)
@@ -163,6 +180,55 @@ D1: each search costs 100 quota units against a default 10,000/day. Filter the
 recommendations sidebar on /watch pages. On /shorts, score the current Short
 and auto-advance if it fails.
 
+  M3 as built (decisions 2026-09-23):
+  - QUOTA CORRECTION: YouTube's docs now give search.list its own bucket of
+    100 calls/day per project (1 per call). videos/playlistItems/channels
+    share 10,000 units/day. Budgets (wrangler.toml [vars]): 90 searches/day,
+    9,000 units/day, 10 searches/day per tester. They're counted in D1
+    yt_quota by Pacific-time day; the tester bucket is keyed by a
+    token-hash prefix and holds counts only.
+  - Sources:
+    - Each interest chip gets one search: 50 results, then videos.list for
+      details. Up to 2 new searches per /source call.
+    - Each channel opened from the grid (up to 20, most recent first) gets
+      its newest uploads via the uploads playlist, 2 units. Channels come
+      first in the round-robin.
+    - Handles are resolved once with channels.list forHandle and stored in
+      channel_handles.
+  - Only videos of 4 minutes or more; no live or upcoming. Descriptions (300
+    chars) are sent to the model for sourced items. Same prompt, rule and
+    cache as the feed. At most 60 new model scores per call, and only
+    approved videos are returned (max 30).
+  - Query results are cached in D1 search_cache for 24h, shared by all users,
+    with no user recorded. They're kept 7 days as a fallback when the budget
+    is out. The cron deletes older rows.
+  - Grid: one sourced tile after every 3 feed tiles, topped up to 12 when
+    the feed is thin. Tiles carry a "Sourced" label and a tooltip saying
+    why. Sourcing is requested once the feed's first batches are scored, and
+    again after settings changes or 10 minutes.
+  - Opened channels are stored in chrome.storage.local (device only, max
+    20), with Forget in the popup.
+    - Feed tiles: watch.js reads the channel from the /watch page once
+      ytd-watch-flexy[video-id] matches, with a name-match guard against the
+      previous video's details.
+    - Sourced tiles already know the channel ID.
+    - The Worker receives channel IDs/handles, never watched video IDs.
+  - Sidebar: filtered in place (dimmed while pending, hidden on fail). No
+    grid of our own.
+  - Shorts:
+    - The title comes from the player's title element or a changed page
+      title, never a stale one; if unsure, the Short is not scored.
+    - Failed Shorts are skipped with YouTube's "Next video" button.
+    - Auto-skip pauses after 5 in a row until one passes.
+    - Our skips set html[data-ww-auto-skip-at] so M4 can ignore them.
+  - Hidden drawer + "Tell YouTube: not interested":
+    - A line under the button reads "This acts on your YouTube account."
+    - Runs only on click, up to 10 per click, with 1-3 s random pauses.
+    - Clicking again stops it; it also stops after 2 "option not found".
+    - The hidden card is given a real size off screen ([data-ww-marking])
+      while its ⋮ menu is used. Marked IDs go to chrome.storage.local.
+    - Matches the English label "Not interested".
+
 M4 — Behaviour layer.
 - Fatigue detection: session over 25 minutes, or 5+ Shorts skipped within
   3 seconds each → overlay offering to switch the filter on.
@@ -225,6 +291,24 @@ Design rules that keep it cheap:
   same. There is nothing to filter, so M3 sourcing has to fill it.
 - Not yet verified against a signed-in home feed. The export snippet reports
   which selector matched, which is the first place to check.
+- /watch (checked live):
+  - The sidebar is ytd-watch-next-secondary-results-renderer, with
+    yt-lockup-view-model cards.
+  - Current video: ytd-watch-flexy[video-id].
+  - Channel: the description info cards link /channel/UC... (works for
+    collaborations); ytd-video-owner-renderer ytd-channel-name a gives /@handle
+    (none for collaborations, which show an avatar stack).
+- /shorts (checked live):
+  - One reused ytd-reel-video-renderer. The URL and document.title change per
+    Short, and yt-navigate-finish fires per Short.
+  - Title: yt-shorts-video-title-view-model. Channel:
+    yt-reel-channel-bar-view-model a (/@handle).
+  - button[aria-label="Next video"] advances.
+- Card ⋮ menu (checked live, signed out): button[aria-label="More actions"]
+  opens a yt-sheet-view-model in ytd-popup-container. Its items are
+  yt-list-item-view-model > button[role="menuitem"]. It opens even when the
+  card is off screen, and Escape closes it. Signed out there's no "Not
+  interested" item.
 
 ## Decisions log
 2026-09-23
@@ -270,6 +354,11 @@ Design rules that keep it cheap:
   It refuses to start if port 8787 is busy. If ANTHROPIC_API_KEY isn't in the
   terminal's environment, it reads the Windows user variable directly.
   Stopping it also stops wrangler/workerd, so nothing is left holding the port.
+  It also passes YOUTUBE_API_KEY through; without it sourcing is simply off.
+  worker/dev.js refuses a busy port too. On Windows wrangler would otherwise
+  start a second Worker on the same port, and requests go to either one.
+- Wrangler dev hot-reloads Worker code, but environment variables are read
+  only at start: restart `npm run dev` after adding or changing a key.
 - Worker only, local (no Cloudflare login needed): in /worker, `npm install`
   once, `npm run db:local` once, then `npm run dev`. dev.js passes Windows
   environment variables through (CLOUDFLARE_INCLUDE_PROCESS_ENV), which is how

@@ -9,6 +9,22 @@
 // Extra arguments pass through, e.g. `npm run dev -- --port 8788`.
 
 import { spawn, spawnSync } from 'node:child_process';
+import net from 'node:net';
+
+// On Windows, wrangler can start a second Worker on a port that's already in
+// use, and requests then go to whichever one answers. Refuse instead.
+const portArg = process.argv.indexOf('--port');
+const port = portArg !== -1 ? Number(process.argv[portArg + 1]) : 8787;
+const free = await new Promise((resolve) => {
+  const server = net.createServer();
+  server.once('error', () => resolve(false));
+  server.once('listening', () => server.close(() => resolve(true)));
+  server.listen(port, '127.0.0.1');
+});
+if (!free) {
+  console.error(`Port ${port} is already in use. Is the Worker already running in another terminal?`);
+  process.exit(1);
+}
 
 const child = spawn('npx', ['wrangler', 'dev', ...process.argv.slice(2)], {
   stdio: 'inherit',

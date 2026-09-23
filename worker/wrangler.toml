@@ -11,10 +11,19 @@ binding = "DB"
 database_name = "worthwhile"
 database_id = "00000000-0000-0000-0000-000000000000"
 
-# Daily clean-up of expired score-cache rows (03:17 UTC).
+# Daily clean-up of expired cache rows (03:17 UTC).
 [triggers]
 crons = ["17 3 * * *"]
 
-# Secrets (not in this file):
-#   ANTHROPIC_API_KEY  deployed: `npx wrangler secret put ANTHROPIC_API_KEY`
-#                      local: read from your Windows environment by `npm run dev`
+# YouTube Data API budgets per quota day (resets at midnight Pacific Time).
+# YouTube allows 100 search calls/day and 10,000 units/day for everything
+# else, per Google Cloud project; these leave a margin.
+[vars]
+YOUTUBE_SEARCHES_PER_DAY = "90"
+YOUTUBE_UNITS_PER_DAY = "9000"
+YOUTUBE_SEARCHES_PER_TESTER = "10"
+
+# Secrets (not in this file). Deployed: `npx wrangler secret put <NAME>`.
+# Local: read from your Windows user environment by `npm run dev`.
+#   ANTHROPIC_API_KEY  scoring
+#   YOUTUBE_API_KEY    sourcing (optional: without it, sourcing is off)

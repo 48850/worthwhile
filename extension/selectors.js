@@ -7,7 +7,8 @@
 // scripts/export-titles.console.js uses the same selectors: keep them in step.
 //
 // Loaded as a plain content script (no modules), so it defines globals that
-// content.js uses: SELECTORS, feedHidingCss, findCards, readCard.
+// the other content scripts use: SELECTORS, feedHidingCss, findCards,
+// readCard, cardOf, readWatchChannel.
 
 const SELECTORS = {
   // The home feed. After in-app navigation YouTube keeps previously visited
@@ -65,6 +66,34 @@ const SELECTORS = {
 
   // A real duration badge ("4:05", "1:02:33"), as opposed to "LIVE" etc.
   durationFormat: /^\d{1,2}(?::\d{2}){1,2}$/,
+
+  // /watch page: the recommendations sidebar. Its cards are
+  // yt-lockup-view-model (23 seen live), read with readCard like the feed's.
+  sidebar: 'ytd-watch-next-secondary-results-renderer',
+
+  // /watch page: which video is showing (video-id attribute), and its channel.
+  watchPage: 'ytd-watch-flexy',
+  watchChannelName: 'ytd-watch-metadata ytd-video-owner-renderer ytd-channel-name #text',
+  watchChannel: [
+    // The description's channel card links to /channel/UC..., which gives the
+    // channel ID directly, and it's there for collaborations too.
+    'ytd-watch-metadata ytd-video-description-infocards-section-renderer a[href^="/channel/UC"]',
+    'ytd-watch-metadata ytd-video-owner-renderer ytd-channel-name a[href^="/@"]',
+    'ytd-watch-metadata ytd-video-description-infocards-section-renderer a#header[href^="/@"]',
+  ],
+
+  // /shorts page. There is one player element, reused as you swipe; the
+  // URL (/shorts/<id>) and the page title change with each Short.
+  shortsTitle: 'ytd-shorts yt-shorts-video-title-view-model',
+  shortsChannel: 'ytd-shorts yt-reel-channel-bar-view-model a[href^="/@"]',
+  shortsNext: 'button[aria-label="Next video"]',
+
+  // A card's ⋮ menu button, and the items of the menu it opens. Each item
+  // wraps a button[role="menuitem"]. These go by YouTube's English labels.
+  cardMenuButton: 'button[aria-label="More actions"], button[aria-label="Action menu"]',
+  menuItem: 'ytd-popup-container yt-list-item-view-model, ytd-popup-container ytd-menu-service-item-renderer',
+  menuItemButton: 'button[role="menuitem"], tp-yt-paper-item',
+  notInterestedLabel: /^not interested$/i,
 };
 
 // CSS that hides YouTube's own home-feed cards while the filter is on
@@ -73,13 +102,41 @@ const SELECTORS = {
 // but invisible, right under our grid, so scrolling to the end of our grid
 // still makes YouTube load the next page. html.ww-hold removes the spinner
 // entirely, which pauses loading (used while a batch is being scored).
+//
+// Also here: the /watch sidebar rules (cards marked data-ww-verdict by
+// watch.js), and [data-ww-marking], which briefly gives a hidden home card
+// a real size, off screen, while its ⋮ menu is used (notinterested.js).
 function feedHidingCss() {
   const items = `${SELECTORS.homeFeed} ${SELECTORS.gridItems}`;
   return [
     `html.ww-on ${items} > :not(${SELECTORS.continuation}) { display: none !important; }`,
     `html.ww-on ${items} > ${SELECTORS.continuation} { visibility: hidden !important; }`,
     `html.ww-on.ww-hold ${items} > ${SELECTORS.continuation} { display: none !important; }`,
+    `html.ww-on ${items} > [data-ww-marking] { display: block !important; position: fixed !important; left: -10000px !important; top: 0 !important; width: 360px !important; }`,
+    `html.ww-on ${SELECTORS.sidebar} [data-ww-verdict="hide"] { display: none !important; }`,
+    `html.ww-on ${SELECTORS.sidebar} [data-ww-verdict="pending"] { opacity: 0.35; }`,
   ].join('\n');
+}
+
+// The outermost card element containing el (e.g. a card's own link).
+function cardOf(el) {
+  let card = el.closest(SELECTORS.card);
+  while (card && card.parentElement?.closest(SELECTORS.card)) card = card.parentElement.closest(SELECTORS.card);
+  return card;
+}
+
+// The channel of the video on a /watch page: { id: "UC..." } or
+// { handle: "@name" }, plus name when shown. null if not found.
+function readWatchChannel() {
+  const name = (document.querySelector(SELECTORS.watchChannelName)?.textContent || '').trim();
+  for (const css of SELECTORS.watchChannel) {
+    const href = document.querySelector(css)?.getAttribute('href') || '';
+    const id = /^\/channel\/(UC[\w-]{22})/.exec(href)?.[1];
+    if (id) return { id, name };
+    const handle = /^\/(@[\w.-]+)/.exec(href)?.[1];
+    if (handle) return { handle, name };
+  }
+  return null;
 }
 
 // Cards inside root, in page order. A wrapper and the card inside it both

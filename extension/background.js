@@ -6,31 +6,43 @@
 
 importScripts('settings.js');
 
-// Where the Worker runs. Local development: `npm run dev` in /worker.
+// Where the Worker runs. Local development: `npm run dev` in the project root.
 // After deploying, change this to your workers.dev URL, and narrow
 // host_permissions in manifest.json to match.
 const WORKER_URL = 'http://127.0.0.1:8787';
 const TIMEOUT_MS = 30000;
+const SOURCE_TIMEOUT_MS = 60000; // sourcing may fetch from YouTube and score dozens of videos
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type !== 'score') return false;
-  scoreItems(message.items).then(sendResponse, (err) => sendResponse({ error: 'network', detail: String(err?.message || err) }));
+  const handlers = { score: () => scoreItems(message.items), source: sourceItems };
+  const handler = handlers[message?.type];
+  if (!handler) return false;
+  handler().then(sendResponse, (err) => sendResponse({ error: 'network', detail: String(err?.message || err) }));
   return true; // keeps the message channel open for the async reply
 });
 
 // Returns the Worker's reply ({ results: { videoId: { verdict, scores } } })
 // or { error }. The content script shows everything on any error.
 async function scoreItems(items) {
+  return post('/score', { items }, TIMEOUT_MS);
+}
+
+// Approved videos from the user's interests and the channels they opened
+// from the grid (remembered on this device): { items } or { error }.
+async function sourceItems() {
+  const { openedChannels } = await loadLocal();
+  const channels = openedChannels.slice(0, 20).map((c) => (c.id ? { id: c.id } : { handle: c.handle }));
+  return post('/source', { channels }, SOURCE_TIMEOUT_MS);
+}
+
+async function post(path, body, timeoutMs) {
   const s = await loadSettings();
   if (!s.token) return { error: 'no-token' };
-  const response = await fetch(`${WORKER_URL}/score`, {
+  const response = await fetch(`${WORKER_URL}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${s.token}` },
-    body: JSON.stringify({
-      profile: { rubric: s.rubric, interests: s.interests, strictness: s.strictness },
-      items,
-    }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    body: JSON.stringify({ profile: { rubric: s.rubric, interests: s.interests, strictness: s.strictness }, ...body }),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (response.status === 401) return { error: 'bad-token' };
   if (!response.ok) return { error: 'server', detail: `HTTP ${response.status}` };

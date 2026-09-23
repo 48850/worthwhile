@@ -30,3 +30,16 @@ for (const link of document.querySelectorAll('.open-options')) {
 }
 
 mountInterestChips(document.getElementById('interests')).focus();
+
+// Channels remembered for sourcing (this device only), with a way to clear them.
+const channelsNote = document.getElementById('channels-note');
+function showChannels(list) {
+  channelsNote.hidden = list.length === 0;
+  document.getElementById('channels-count').textContent = list.length === 1 ? '1 channel' : `${list.length} channels`;
+  channelsNote.title = list.map((c) => c.name || c.handle || c.id).join(', ');
+}
+loadLocal().then(({ openedChannels }) => showChannels(openedChannels));
+document.getElementById('forget-channels').addEventListener('click', async () => {
+  await chrome.storage.local.set({ openedChannels: [] });
+  showChannels([]);
+});
