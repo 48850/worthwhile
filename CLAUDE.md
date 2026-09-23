@@ -7,8 +7,14 @@ clickbait, surfaces content matching the user's interests (e.g. chess, maths,
 science, literature, theatre), and measures whether sessions felt worth it.
 
 ## Status
-- M1 (scoring test): built and approved. Waiting for the real run: tuning set
-  first, then the holdout result. M2 starts only after the holdout result is in.
+- M1 (scoring test): built and approved. Tuning run on titles.csv: 93.7% at
+  strictness 2 vs 88.9% at 3. Every error was a good video hidden; no bait got
+  through. Strictness set to 2.
+- Holdout (30 rows, run once 2026-09-23, strictness 2 frozen): 28/30 = 93.3%.
+  Both misses were bait shown (Top Gear Classic compilation, CrunchLabs), with
+  no good videos hidden. At strictness 3 the same scores gave 96.7%, a one-row
+  difference, so the setting stays at 2. M1 PASSED.
+- M2: in progress.
 - M2 onwards: not started. Wait for go-ahead after each milestone.
 
 ## Hard constraints
@@ -31,7 +37,7 @@ science, literature, theatre), and measures whether sessions felt worth it.
 
 ## Repo layout
 /extension   manifest.json, content.js, selectors.js, background.js,
-             options.html, options.js, styles.css
+             popup.html, popup.js, options.html, options.js, styles.css
 /worker      src/index.js, src/score.js, src/source.js, wrangler.toml, schema.sql
 /shared      prompt.js (scoring prompt, used by the worker AND the test script)
 /scripts     score-test.js, titles.csv (tuning set), holdout.csv (never tuned on),
@@ -95,9 +101,23 @@ M2 — Extension MVP. On the YouTube home page: collect video cards as they load
 hide them until scored, send them to the Worker via background.js, then replace
 YouTube's feed with my own grid of approved videos (thumbnail, title, channel,
 link). Show a loading state while scoring. Options page: invite token, rubric
-textarea, interests list, strictness threshold. Toolbar button toggles on/off.
+textarea, strictness threshold.
+  - Toolbar popup (added 2026-09-23). Clicking the toolbar icon opens a popup with:
+    - interests as chips: type and press Enter to add, click x to remove;
+    - the on/off toggle. This replaces "toolbar button toggles on/off": an
+      extension action with a popup can't also have its own click handler.
+    Interests save to chrome.storage.sync. They feed the scoring prompt now and
+    the M3 sourcing searches later. The full rubric and strictness stay on
+    the options page.
+  - After an interests edit, the cache key (hash of rubric + interests)
+    changes, so the feed re-scores automatically. Show a brief "re-scoring…"
+    state on the feed (listen to chrome.storage.onChanged).
+  - chrome.storage.sync quotas (check at M2): about 8 KB per item and 100 KB
+    total, with write-rate limits. Save on Enter/x, not on every keystroke.
   - Home-feed cards have no description, so the model mostly sees title, channel
     and duration. M1 matches that.
+  - Channel name is optional for scoring. If the channel can't be read, send the
+    title alone; never drop the card.
 
 M3 — Sourcing, sidebar, Shorts. If fewer than 10 items are approved, the Worker
 searches the YouTube Data API v3 for the user's interests and adds the results
@@ -147,8 +167,15 @@ Design rules that keep it cheap:
 
 ## YouTube DOM notes (checked live, signed out, 2026-09-23)
 - Cards use the "lockup" layout: ytd-rich-item-renderer > yt-lockup-view-model
-  on grids, bare yt-lockup-view-model in the /watch sidebar. Not seen:
-  ytd-rich-grid-media (older layout), still listed as a fallback.
+  on grids, bare yt-lockup-view-model in the /watch sidebar. The older
+  ytd-rich-grid-media layout is still served on some pages (e.g. the Live
+  destination page), so both layouts must keep working.
+- Live streams: the user's signed-in home feed returned "12K watching" as the
+  channel name. On the pages checked signed out, viewer counts do have
+  aria-labels, so the signed-in layout differs. Fix: SELECTORS.notChannel
+  rejects metadata-looking text (counts, ages, LIVE/Premieres). A bare number
+  is still allowed, since channels can be called "47". Assumes an English
+  YouTube UI.
 - Class names are camelCase now (ytLockupMetadataViewModelTitle, formerly
   yt-lockup-metadata-view-model__title) and change often. Select by tag and
   attribute, not class.
@@ -173,6 +200,13 @@ Design rules that keep it cheap:
 - Scoring uses the official @anthropic-ai/sdk. Callers do
   client.messages.create(buildRequest(...)), so the test and the Worker send
   identical requests.
+- Strictness 2 (user's choice from the tuning run; errors were all good
+  videos hidden, zero bait through). Frozen for the holdout run.
+- Interests move to a toolbar popup (chips + on/off toggle). Rubric and
+  strictness stay on the options page.
+- The API key is a Windows user environment variable, not .env. Shells
+  started before it was set can't see it. Read it from the user environment
+  (registry) for that one command, or restart the shell.
 
 ## Local development
 - Node 22 (needs >= 20.12 for process.loadEnvFile). `npm install` once in the root.

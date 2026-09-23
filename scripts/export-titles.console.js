@@ -54,18 +54,31 @@
       { css: 'ytd-channel-name #text' }, // older layout
       { css: 'a#avatar-link', attr: 'title' }, // older layout: channel avatar
     ],
+
+    // Text that is card metadata, never a channel name: viewer and view
+    // counts ("12K watching", "1.2M views", "790k"), ages ("4 days ago",
+    // "Streamed 22 min ago") and labels ("LIVE", "Premieres ..."). Channel
+    // candidates matching this are skipped. This is the second safeguard
+    // behind the aria-label check, for live cards and any layout where
+    // those spans have no aria-label. Assumes YouTube is set to English.
+    // A bare number is allowed, since channels can be called "47".
+    notChannel:
+      /^(?:[\d.,]+\s?[kmb]|[\d.,]+\s?[kmb]?\s+(?:watching|waiting|views?)|(?:streamed\s+)?[\d.,]+\s+\S+\s+ago|live(?: now)?|upcoming|new|(?:premieres?|premiered|scheduled for)\b.*)$/i,
   };
   // ==========================================================================
 
   const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
 
-  // First non-empty candidate, plus which selector found it (tells us which
-  // layout YouTube is serving you).
-  function pick(card, candidates) {
+  // First usable value from the candidates, plus which selector found it
+  // (tells us which layout YouTube is serving you). Checks every element a
+  // candidate matches, not just the first, skipping values that match
+  // `reject` (e.g. "12K watching" when looking for a channel).
+  function pick(card, candidates, reject) {
     for (const c of candidates) {
-      const el = card.querySelector(c.css);
-      const value = clean(el && (c.attr ? el.getAttribute(c.attr) : el.textContent));
-      if (value) return { value, via: c.css };
+      for (const el of card.querySelectorAll(c.css)) {
+        const value = clean(c.attr ? el.getAttribute(c.attr) : el.textContent);
+        if (value && !(reject && reject.test(value))) return { value, via: c.css };
+      }
     }
     return { value: '', via: '(nothing matched)' };
   }
@@ -86,7 +99,7 @@
     const videoId = url.searchParams.get('v');
     if (!videoId) return null;
     const title = pick(card, SELECTORS.title);
-    const channel = pick(card, SELECTORS.channel);
+    const channel = pick(card, SELECTORS.channel, SELECTORS.notChannel);
     return { videoId, title: title.value, channel: channel.value, titleVia: title.via, channelVia: channel.via };
   }
 
