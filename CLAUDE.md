@@ -257,8 +257,21 @@ Design rules that keep it cheap:
 - Node 22 (needs >= 20.12 for process.loadEnvFile). `npm install` once in the root.
 - `npm run score-test` scores scripts/titles.csv. `npm run score-test -- scripts/holdout.csv`
   scores another file. Add `--dry-run` to show the prompt without calling the API.
-- Worker, local (no Cloudflare login needed): in /worker, `npm install` once,
-  `npm run db:local` once, then `npm run dev`. dev.js passes Windows
+- One command for local testing: `npm run dev` from the project root
+  (scripts/dev.js). It:
+  - installs the Worker's dependencies if missing and applies schema.sql to
+    the local D1;
+  - creates a local invite token the first time and reuses it after that.
+    It's saved in worker/.wrangler/local-invite-token.txt (gitignored), since
+    D1 only holds hashes. It registers the token with INSERT OR IGNORE,
+    prints it, and copies it to the clipboard;
+  - starts the Worker on port 8787 and prints the token again when it's
+    ready.
+  It refuses to start if port 8787 is busy. If ANTHROPIC_API_KEY isn't in the
+  terminal's environment, it reads the Windows user variable directly.
+  Stopping it also stops wrangler/workerd, so nothing is left holding the port.
+- Worker only, local (no Cloudflare login needed): in /worker, `npm install`
+  once, `npm run db:local` once, then `npm run dev`. dev.js passes Windows
   environment variables through (CLOUDFLARE_INCLUDE_PROCESS_ENV), which is how
   ANTHROPIC_API_KEY reaches the local Worker. Don't create a .dev.vars file,
   or that pass-through stops. Wrangler prints env values as "(hidden)".
