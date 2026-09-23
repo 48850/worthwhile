@@ -437,6 +437,7 @@
       ui.grid.replaceChildren(...children);
       lastGridKey = gridKey;
     }
+    shown.forEach(showScoresOnHover); // scores can change after a re-score
 
     const nothingPassed = feedOrder.length > 0 && order.length === 0 && !scoring && !sourcing;
     ui.empty.textContent = nothingPassed ? 'Nothing loaded so far passed your filter. Scroll down or load more.' : '';
@@ -449,8 +450,8 @@
   function feedTile(videoId) {
     const key = `f:${videoId}`;
     if (tiles.has(key)) return tiles.get(key);
-    const { title, channel, duration } = known.get(videoId);
-    const tile = makeTile(videoId, title, channel, duration);
+    const { title, channel, duration, meta } = known.get(videoId);
+    const tile = makeTile(videoId, title, channel, duration, meta);
     // Plain click: use YouTube's own link so navigation stays in-app (no
     // page reload). Ctrl/middle-click etc. fall through to the normal href.
     // Either way, note the video so watch.js can record its channel.
@@ -470,7 +471,8 @@
   function sourcedTile(item) {
     const key = `s:${item.id}`;
     if (tiles.has(key)) return tiles.get(key);
-    const tile = makeTile(item.id, item.title, item.channel, item.duration);
+    const meta = [wwViews(item.views), wwAgo(item.publishedAt)].filter(Boolean).join(' • ');
+    const tile = makeTile(item.id, item.title, item.channel, item.duration, meta);
     tile.classList.add('ww-sourced');
     const from = item.source.startsWith('interest:') ? `your interest "${item.source.slice(9)}"` : 'a channel you\'ve opened';
     tile.title = `${item.title}\nFound by Worthwhile from ${from}`;
@@ -487,7 +489,9 @@
     return tile;
   }
 
-  function makeTile(videoId, title, channel, duration) {
+  // Laid out like YouTube's own card: thumbnail, two-line title, channel,
+  // then "views • age".
+  function makeTile(videoId, title, channel, duration, meta) {
     const tile = wwEl('a', { className: 'ww-tile' });
     tile.href = `/watch?v=${videoId}`;
     tile.title = title;
@@ -498,8 +502,20 @@
     img.loading = 'lazy';
     thumb.append(img);
     if (duration) thumb.append(wwEl('span', { className: 'ww-duration', text: duration }));
-    tile.append(thumb, wwEl('div', { className: 'ww-title', text: title }), wwEl('div', { className: 'ww-channel', text: channel }));
+    tile.append(
+      thumb,
+      wwEl('div', { className: 'ww-title', text: title }),
+      wwEl('div', { className: 'ww-channel', text: channel }),
+      wwEl('div', { className: 'ww-meta', text: meta || '' }),
+    );
     return tile;
+  }
+
+  // Hovering a feed tile shows its scores, to check why it was shown.
+  function showScoresOnHover(videoId) {
+    const tile = tiles.get(`f:${videoId}`);
+    const s = scoresOf.get(videoId);
+    if (tile && s) tile.title = `${known.get(videoId).title}\nWorthwhile: interest ${s.interest_match} · substance ${s.substance} · bait ${s.bait}`;
   }
 
   // ---------------------------------------------------------------------------

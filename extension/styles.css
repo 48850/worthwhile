@@ -1,18 +1,29 @@
 /* extension/styles.css
  *
- * Styles for our grid (#ww-feed) on YouTube's home page. Only our own
- * elements are styled here. The CSS that hides YouTube's feed is built from
- * selectors.js, which is the one place YouTube's selectors live.
+ * Styles for our grid (#ww-feed) on YouTube's home page, built to look like
+ * YouTube's own grid: same columns, gaps, thumbnail corners and text sizes
+ * (measured live 2026-09-24: title 500 16px/22px, channel and metadata
+ * 14px/20px, 12px under the thumbnail).
  *
- * Colours come from YouTube's own CSS variables, so light and dark themes
- * both work. The fallbacks are for light mode.
+ * Only our own elements are styled here. Colours, column count and gaps
+ * come from --ww-* variables that selectors.js sets from YouTube's own theme
+ * variables, so light and dark mode match and YouTube's names stay in
+ * selectors.js.
  */
 
 #ww-feed {
   display: none;
-  margin: 0 16px 24px;
+  /* The same box as YouTube's own grid: full width up to YouTube's maximum,
+     centred. YouTube leaves one gap beside every card (a card is
+     width / columns - gap), hence the right padding. */
+  align-self: stretch;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--ww-max-width, none);
+  margin: 0 auto 24px;
+  padding-right: var(--ww-column-gap, 16px);
   font-family: Roboto, Arial, sans-serif;
-  color: var(--yt-spec-text-primary, #0f0f0f);
+  color: var(--ww-text, #0f0f0f);
 }
 html.ww-on #ww-feed {
   display: block;
@@ -23,13 +34,14 @@ html.ww-on #ww-feed {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 0;
+  padding: 12px 0 16px;
   font-size: 13px;
-  color: var(--yt-spec-text-secondary, #606060);
+  line-height: 18px;
+  color: var(--ww-text-2, #606060);
 }
 #ww-feed .ww-brand {
   font-weight: 500;
-  color: var(--yt-spec-text-primary, #0f0f0f);
+  color: var(--ww-text, #0f0f0f);
 }
 #ww-feed.ww-busy .ww-status::before {
   content: '';
@@ -50,80 +62,93 @@ html.ww-on #ww-feed {
 }
 
 #ww-feed .ww-notice {
-  margin-bottom: 12px;
+  margin-bottom: 16px;
   padding: 10px 12px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 14px;
   background: rgba(255, 170, 0, 0.15);
 }
 #ww-feed .ww-notice[hidden],
 #ww-feed .ww-empty[hidden],
-#ww-feed .ww-more[hidden] {
+#ww-feed .ww-more[hidden],
+#ww-feed .ww-hidden[hidden] {
   display: none;
 }
 
-/* Grid of approved videos */
+/* The grid: YouTube's own column count and gaps */
 #ww-feed .ww-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
-  gap: 32px 16px;
+  grid-template-columns: repeat(var(--ww-columns, 4), minmax(0, 1fr));
+  column-gap: var(--ww-column-gap, 16px);
+  row-gap: var(--ww-row-gap, 32px);
 }
 #ww-feed.ww-rescoring .ww-grid {
   opacity: 0.45;
   transition: opacity 0.2s;
 }
 
+/* One video: thumbnail, two-line title, channel, views • age */
 #ww-feed .ww-tile {
   display: block;
-  color: inherit;
-  text-decoration: none;
   min-width: 0;
+  color: var(--ww-text, #0f0f0f);
+  text-decoration: none;
 }
 #ww-feed .ww-thumb {
   position: relative;
   aspect-ratio: 16 / 9;
   border-radius: 12px;
   overflow: hidden;
-  background: var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.1));
+  background: var(--ww-layer, rgba(0, 0, 0, 0.05));
 }
 #ww-feed .ww-thumb img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  display: block;
 }
 #ww-feed .ww-duration {
   position: absolute;
-  right: 6px;
-  bottom: 6px;
-  padding: 1px 5px;
+  right: 8px;
+  bottom: 8px;
+  padding: 1px 4px;
   border-radius: 4px;
   font-size: 12px;
+  line-height: 18px;
   font-weight: 500;
   color: #fff;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.6);
 }
 #ww-feed .ww-title {
   margin-top: 12px;
   font-size: 16px;
   line-height: 22px;
   font-weight: 500;
+  color: var(--ww-text, #0f0f0f);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  max-height: 44px; /* two lines, even if the clamp is ignored */
+  word-break: break-word;
+}
+#ww-feed .ww-channel,
+#ww-feed .ww-meta {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ww-text-2, #606060);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #ww-feed .ww-channel {
-  margin-top: 4px;
-  font-size: 14px;
-  color: var(--yt-spec-text-secondary, #606060);
+  margin-top: 2px;
 }
-#ww-feed .ww-tile:hover .ww-title {
-  text-decoration: underline;
+#ww-feed .ww-meta:empty {
+  display: none;
 }
 
 /* Grey stand-ins while the first batch is scored */
-#ww-feed .ww-placeholder .ww-thumb,
 #ww-feed .ww-placeholder {
   pointer-events: none;
 }
@@ -132,7 +157,7 @@ html.ww-on #ww-feed {
   display: block;
   aspect-ratio: 16 / 9;
   border-radius: 12px;
-  background: var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.1));
+  background: var(--ww-layer, rgba(0, 0, 0, 0.05));
   animation: ww-pulse 1.2s ease-in-out infinite alternate;
 }
 #ww-feed .ww-placeholder::after {
@@ -140,9 +165,9 @@ html.ww-on #ww-feed {
   display: block;
   height: 16px;
   width: 70%;
-  margin-top: 12px;
+  margin-top: 14px;
   border-radius: 4px;
-  background: var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.1));
+  background: var(--ww-layer, rgba(0, 0, 0, 0.05));
 }
 @keyframes ww-pulse {
   to {
@@ -153,7 +178,7 @@ html.ww-on #ww-feed {
 #ww-feed .ww-empty {
   padding: 24px 0;
   font-size: 14px;
-  color: var(--yt-spec-text-secondary, #606060);
+  color: var(--ww-text-2, #606060);
 }
 #ww-feed .ww-more {
   display: block;
@@ -162,21 +187,21 @@ html.ww-on #ww-feed {
   border: 0;
   border-radius: 18px;
   font: 500 14px Roboto, Arial, sans-serif;
-  color: var(--yt-spec-text-primary, #0f0f0f);
-  background: var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.05));
+  color: var(--ww-text, #0f0f0f);
+  background: var(--ww-layer, rgba(0, 0, 0, 0.05));
   cursor: pointer;
 }
 
-/* "Sourced" label on videos Worthwhile found itself (M3) */
+/* "Sourced" label on videos Worthwhile found itself */
 #ww-feed .ww-sourced-label {
   position: absolute;
-  left: 6px;
-  top: 6px;
+  left: 8px;
+  top: 8px;
   padding: 1px 6px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 18px;
   font-weight: 500;
-  letter-spacing: 0.02em;
   color: #fff;
   background: rgba(26, 115, 232, 0.9);
 }
@@ -185,48 +210,42 @@ html.ww-on #ww-feed {
 #ww-feed .ww-hidden {
   margin-top: 32px;
   padding-top: 12px;
-  border-top: 1px solid var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.1));
+  border-top: 1px solid var(--ww-layer, rgba(0, 0, 0, 0.1));
   font-size: 14px;
-}
-#ww-feed .ww-hidden[hidden] {
-  display: none;
 }
 #ww-feed .ww-hidden summary {
   cursor: pointer;
   font-weight: 500;
-  color: var(--yt-spec-text-secondary, #606060);
+  color: var(--ww-text-2, #606060);
 }
 #ww-feed .ww-tell-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 12px 0;
+  margin: 12px 0 4px;
 }
 #ww-feed .ww-tell {
   padding: 6px 14px;
   border: 0;
   border-radius: 16px;
   font: 500 13px Roboto, Arial, sans-serif;
-  color: var(--yt-spec-text-primary, #0f0f0f);
-  background: var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.05));
+  color: var(--ww-text, #0f0f0f);
+  background: var(--ww-layer, rgba(0, 0, 0, 0.05));
   cursor: pointer;
-}
-#ww-feed .ww-tell-row {
-  margin-bottom: 4px;
-}
-#ww-feed .ww-tell-warning {
-  margin-bottom: 12px;
-  font-size: 12px;
-  color: var(--yt-spec-text-secondary, #606060);
 }
 #ww-feed .ww-tell:disabled {
   opacity: 0.5;
   cursor: default;
 }
+#ww-feed .ww-tell-warning {
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--ww-text-2, #606060);
+}
 #ww-feed .ww-tell-status,
 #ww-feed .ww-hidden-meta {
   font-size: 13px;
-  color: var(--yt-spec-text-secondary, #606060);
+  color: var(--ww-text-2, #606060);
 }
 #ww-feed .ww-hidden-list {
   margin: 0;
@@ -236,9 +255,9 @@ html.ww-on #ww-feed {
   margin: 6px 0;
 }
 #ww-feed .ww-hidden-list a {
+  margin-right: 8px;
   color: inherit;
   text-decoration: none;
-  margin-right: 8px;
 }
 #ww-feed .ww-hidden-list a:hover {
   text-decoration: underline;
@@ -246,29 +265,20 @@ html.ww-on #ww-feed {
 #ww-feed .ww-told {
   margin-left: 8px;
   font-size: 12px;
-  color: #188038;
+  color: #1e8e3e;
 }
 #ww-feed .ww-told-failed {
-  color: #b06000;
+  color: #e37400;
 }
 
-/* Short message at the bottom of the page (shorts.js) */
-#ww-toast {
+/* "Worthwhile: bait" label on Shorts (shorts.js, only when switched on) */
+#ww-shorts-label {
   position: fixed;
-  left: 50%;
-  bottom: 32px;
-  z-index: 10000;
-  transform: translateX(-50%) translateY(20px);
-  padding: 10px 16px;
-  border-radius: 8px;
-  font: 500 14px Roboto, Arial, sans-serif;
+  z-index: 2000;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font: 500 13px/18px Roboto, Arial, sans-serif;
   color: #fff;
-  background: rgba(0, 0, 0, 0.85);
-  opacity: 0;
+  background: rgba(0, 0, 0, 0.7);
   pointer-events: none;
-  transition: opacity 0.2s, transform 0.2s;
-}
-#ww-toast.ww-show {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
 }

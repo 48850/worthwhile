@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS = {
     'hustle/motivation/get-rich content, generic top-10 lists, and mainstream hype.',
   interests: [], // edited in the toolbar popup
   strictness: 2, // 1 (lenient) to 5 (strict). 2 passed the M1 holdout test.
+  shortsLabels: false, // label bait Shorts (never skips); off by default
 };
 
 const SETTINGS_LIMITS = {

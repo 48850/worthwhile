@@ -10,6 +10,7 @@ const rubricCount = document.getElementById('rubric-count');
 const strictness = document.getElementById('strictness');
 const strictnessLabel = document.getElementById('strictness-label');
 const saved = document.getElementById('saved');
+const shortsLabels = document.getElementById('shorts-labels');
 
 const STRICTNESS_NAMES = {
   1: '1: lenient',
@@ -33,6 +34,7 @@ loadSettings().then((s) => {
   token.value = s.token;
   rubric.value = s.rubric;
   strictness.value = String(s.strictness);
+  shortsLabels.checked = s.shortsLabels;
   showStrictness();
   showRubricCount();
 });
@@ -51,6 +53,7 @@ form.addEventListener('submit', async (event) => {
     token: token.value.trim(),
     rubric: rubric.value.trim() || DEFAULT_SETTINGS.rubric,
     strictness: Number(strictness.value),
+    shortsLabels: shortsLabels.checked,
   });
   saved.textContent = 'Saved.';
   setTimeout(() => (saved.textContent = ''), 2500);

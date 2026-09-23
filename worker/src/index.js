@@ -16,7 +16,7 @@
 // POST /source
 //   Authorization: Bearer <invite token>
 //   { "profile": { ...as above }, "channels": [{ "id": "UC..." } | { "handle": "@name" }] }
-// → 200 { "items": [{ "id", "title", "channel", "channelId", "duration", "source" }], ... }
+// → 200 { "items": [{ "id", "title", "channel", "channelId", "duration", "views", "publishedAt", "source" }], ... }
 //   source is "channel" or "interest:<interest>". Only approved videos are returned.
 //
 // Errors: 401 bad or missing token, 400 bad request, 503 database unavailable.

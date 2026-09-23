@@ -202,3 +202,12 @@ body.options section {
 body.options input[type='range'] {
   flex: 1;
 }
+
+/* Checkbox rows on the options page */
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  cursor: pointer;
+}

@@ -67,6 +67,28 @@ const SELECTORS = {
   // A real duration badge ("4:05", "1:02:33"), as opposed to "LIVE" etc.
   durationFormat: /^\d{1,2}(?::\d{2}){1,2}$/,
 
+  // Views and age ("1.2M views", "3 days ago"; live: "12K watching"). In the
+  // lockup these are the metadata spans that DO carry an aria-label.
+  meta: [
+    'yt-content-metadata-view-model span[role="text"][aria-label]',
+    '#metadata-line span.inline-metadata-item', // older layout
+  ],
+
+  // YouTube's theme and grid CSS variables. YouTube renamed its colours in
+  // 2026 (the old --yt-spec-* ones are gone, which made our titles render
+  // black on black). Checked live 2026-09-24. Tried in order; our own
+  // fallbacks (light, or dark under darkTheme) apply if none is set.
+  darkTheme: 'html[dark]',
+  cssVars: {
+    text: ['--yt-sys-color-baseline--text-primary', '--yt-spec-text-primary'],
+    textSecondary: ['--yt-sys-color-baseline--text-secondary', '--yt-spec-text-secondary'],
+    layer: ['--yt-sys-color-baseline--tonal-background', '--yt-spec-10-percent-layer'],
+    columns: ['--ytd-rich-grid-items-per-row'], // set by YouTube to fit the window
+    columnGap: ['--ytd-rich-grid-item-margin'],
+    rowGap: ['--ytd-rich-grid-row-margin'],
+    maxWidth: ['--ytd-rich-grid-content-max-width'],
+  },
+
   // /watch page: the recommendations sidebar. Its cards are
   // yt-lockup-view-model (23 seen live), read with readCard like the feed's.
   sidebar: 'ytd-watch-next-secondary-results-renderer',
@@ -86,7 +108,7 @@ const SELECTORS = {
   // URL (/shorts/<id>) and the page title change with each Short.
   shortsTitle: 'ytd-shorts yt-shorts-video-title-view-model',
   shortsChannel: 'ytd-shorts yt-reel-channel-bar-view-model a[href^="/@"]',
-  shortsNext: 'button[aria-label="Next video"]',
+  shortsPlayer: 'ytd-shorts ytd-reel-video-renderer', // the "Worthwhile: bait" label is placed over this
 
   // A card's ⋮ menu button, and the items of the menu it opens. Each item
   // wraps a button[role="menuitem"]. These go by YouTube's English labels.
@@ -115,7 +137,24 @@ function feedHidingCss() {
     `html.ww-on ${items} > [data-ww-marking] { display: block !important; position: fixed !important; left: -10000px !important; top: 0 !important; width: 360px !important; }`,
     `html.ww-on ${SELECTORS.sidebar} [data-ww-verdict="hide"] { display: none !important; }`,
     `html.ww-on ${SELECTORS.sidebar} [data-ww-verdict="pending"] { opacity: 0.35; }`,
+    ...themeCss(),
   ].join('\n');
+}
+
+// Our grid's --ww-* variables, read from YouTube's own (see cssVars), so it
+// matches YouTube's colours, column count and spacing. styles.css uses only
+// the --ww-* names.
+function themeCss() {
+  const V = SELECTORS.cssVars;
+  const chain = (names, fallback) => names.reduceRight((inner, name) => `var(${name}, ${inner})`, fallback);
+  const colours = (text, textSecondary, layer) =>
+    `--ww-text: ${chain(V.text, text)}; --ww-text-2: ${chain(V.textSecondary, textSecondary)}; --ww-layer: ${chain(V.layer, layer)};`;
+  return [
+    `#ww-feed { ${colours('#0f0f0f', '#606060', 'rgba(0, 0, 0, 0.05)')}` +
+      ` --ww-columns: ${chain(V.columns, '4')}; --ww-column-gap: ${chain(V.columnGap, '16px')}; --ww-row-gap: ${chain(V.rowGap, '32px')};` +
+      ` --ww-max-width: ${chain(V.maxWidth, 'none')}; }`,
+    `${SELECTORS.darkTheme} #ww-feed { ${colours('#f1f1f1', '#aaa', 'rgba(255, 255, 255, 0.1)')} }`,
+  ];
 }
 
 // The outermost card element containing el (e.g. a card's own link).
@@ -145,7 +184,7 @@ function findCards(root) {
   return [...root.querySelectorAll(SELECTORS.card)].filter((el) => !el.parentElement.closest(SELECTORS.card));
 }
 
-// { videoId, title, channel, duration, link } for a plain video card, or null
+// { videoId, title, channel, duration, meta, link } for a plain video card, or null
 // for anything else (Shorts, ads, mixes, playlists). title is '' while
 // YouTube is still filling the card in. link is YouTube's own <a> element.
 function readCard(card) {
@@ -161,8 +200,19 @@ function readCard(card) {
     title: pickText(card, SELECTORS.title),
     channel: pickText(card, SELECTORS.channel, (v) => !SELECTORS.notChannel.test(v)),
     duration: pickText(card, SELECTORS.duration, (v) => SELECTORS.durationFormat.test(v)),
+    meta: readMeta(card),
     link,
   };
+}
+
+// "1.2M views • 3 days ago", as the card shows it. Some layouts show a bare
+// "1.9m" for views, so that gets " views" added.
+function readMeta(card) {
+  for (const css of SELECTORS.meta) {
+    const parts = [...card.querySelectorAll(css)].map((el) => el.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    if (parts.length) return parts.map((p) => (/^[\d.,]+\s?[kmb]?$/i.test(p) ? `${p.toUpperCase()} views` : p)).join(' • ');
+  }
+  return '';
 }
 
 // First usable value from a candidate list. Checks every element a candidate

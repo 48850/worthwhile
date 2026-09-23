@@ -202,6 +202,10 @@ and auto-advance if it fails.
   - Query results are cached in D1 search_cache for 24h, shared by all users,
     with no user recorded. They're kept 7 days as a fallback when the budget
     is out. The cron deletes older rows.
+  - Tiles match YouTube's cards: thumbnail, two-line title, channel,
+    "views • age". Feed tiles read views/age from the card (the metadata
+    spans with an aria-label); sourced tiles get views/publishedAt from
+    videos.list statistics (free). Hovering a feed tile shows its scores.
   - Grid: one sourced tile after every 3 feed tiles, topped up to 12 when
     the feed is thin. Tiles carry a "Sourced" label and a tooltip saying
     why. Sourcing is requested once the feed's first batches are scored, and
@@ -215,12 +219,14 @@ and auto-advance if it fails.
     - The Worker receives channel IDs/handles, never watched video IDs.
   - Sidebar: filtered in place (dimmed while pending, hidden on fail). No
     grid of our own.
-  - Shorts:
+  - Shorts (changed 2026-09-24 after the user's test: auto-skip felt random
+    and took control away, the opposite of the product):
+    - OFF by default. The options page has "Label bait in Shorts"
+      (setting shortsLabels).
+    - When on, a failing Short gets a small "Worthwhile: bait" label over
+      the player. NOTHING IS EVER SKIPPED.
     - The title comes from the player's title element or a changed page
       title, never a stale one; if unsure, the Short is not scored.
-    - Failed Shorts are skipped with YouTube's "Next video" button.
-    - Auto-skip pauses after 5 in a row until one passes.
-    - Our skips set html[data-ww-auto-skip-at] so M4 can ignore them.
   - Hidden drawer + "Tell YouTube: not interested":
     - A line under the button reads "This acts on your YouTube account."
     - Runs only on click, up to 10 per click, with 1-3 s random pauses.
@@ -304,6 +310,20 @@ Design rules that keep it cheap:
   - Title: yt-shorts-video-title-view-model. Channel:
     yt-reel-channel-bar-view-model a (/@handle).
   - button[aria-label="Next video"] advances.
+- Theme variables (checked live 2026-09-24): YouTube renamed its colours.
+  --yt-spec-text-primary etc. no longer exist; they're now
+  --yt-sys-color-baseline--text-primary / --text-secondary / --tonal-background.
+  This made our grid titles render black on black (user-reported). Fix:
+  selectors.js cssVars → our own --ww-* variables, with light fallbacks and
+  dark ones under html[dark].
+- Grid geometry (checked live): ytd-rich-grid-renderer is a centred flex
+  column. #contents holds the cards, with --ytd-rich-grid-items-per-row,
+  --ytd-rich-grid-item-margin (16px), --ytd-rich-grid-row-margin (32px) and
+  --ytd-rich-grid-content-max-width. A card is width / columns - 16px.
+  #ww-feed copies that box (stretch, max-width, right padding of one gap),
+  and its tiles matched YouTube's cards to the pixel at 1024px and 1600px.
+  Card text: title 500 16px/22px 12px under the thumbnail, channel and
+  metadata 14px/20px, channel 2px under the title.
 - Card ⋮ menu (checked live, signed out): button[aria-label="More actions"]
   opens a yt-sheet-view-model in ytd-popup-container. Its items are
   yt-list-item-view-model > button[role="menuitem"]. It opens even when the

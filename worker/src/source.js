@@ -102,7 +102,7 @@ export async function sourceItems(env, ctx, profile, channels, tokenHash) {
   const items = candidates
     .filter((v) => scored.results[v.id].scores && scored.results[v.id].verdict === 'show')
     .slice(0, MAX_RETURN)
-    .map(({ id, title, channel, channelId, duration, source }) => ({ id, title, channel, channelId, duration, source }));
+    .map(({ id, title, channel, channelId, duration, views, publishedAt, source }) => ({ id, title, channel, channelId, duration, views, publishedAt, source }));
 
   console.log(JSON.stringify({ sourcing: { queries: groups.length, fetched, candidates: candidates.length, approved: items.length } }));
   return { items, candidates: candidates.length, unscored: scored.unscored };
@@ -216,7 +216,8 @@ async function fetchChannelUploads(env, channelId) {
 // live and upcoming videos.
 async function videoDetails(env, ids) {
   if (ids.length === 0) return [];
-  const data = await youtube(env, 'videos', { part: 'snippet,contentDetails', id: ids.slice(0, 50).join(',') });
+  // statistics (view count) is free: videos.list costs 1 unit whatever parts are asked for.
+  const data = await youtube(env, 'videos', { part: 'snippet,contentDetails,statistics', id: ids.slice(0, 50).join(',') });
   const byId = new Map((data.items || []).map((v) => [v.id, v]));
   const videos = [];
   for (const id of ids) {
@@ -231,6 +232,8 @@ async function videoDetails(env, ids) {
       channelId: v.snippet.channelId,
       duration: clock(seconds),
       description: (v.snippet.description || '').replace(/\s+/g, ' ').slice(0, 300),
+      views: v.statistics?.viewCount != null ? Number(v.statistics.viewCount) : null,
+      publishedAt: v.snippet.publishedAt || null,
     });
   }
   return videos;
