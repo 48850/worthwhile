@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Worthwhile</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body class="popup">
+    <header class="popup-header">
+      <h1>Worthwhile</h1>
+      <label class="switch">
+        <input type="checkbox" id="enabled" />
+        <span class="switch-track" aria-hidden="true"></span>
+        <span id="enabled-label">Filter on</span>
+      </label>
+    </header>
+
+    <p id="token-warning" class="warning" hidden>
+      Add your invite token in <a href="#" class="open-options">Settings</a> to start filtering.
+    </p>
+
+    <section>
+      <h2>Interests</h2>
+      <div id="interests"></div>
+    </section>
+
+    <footer>
+      <a href="#" class="open-options">Settings: rubric, strictness, invite token</a>
+    </footer>
+
+    <script src="settings.js"></script>
+    <script src="chips.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

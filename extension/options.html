@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Worthwhile settings</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body class="options">
+    <main>
+      <h1>Worthwhile settings</h1>
+
+      <form id="settings">
+        <section>
+          <h2><label for="token">Invite token</label></h2>
+          <p class="hint">The token you were given. Filtering starts once this is set.</p>
+          <input id="token" type="text" autocomplete="off" spellcheck="false" placeholder="Paste your invite token" />
+        </section>
+
+        <section>
+          <h2><label for="rubric">What counts as worthwhile</label></h2>
+          <p class="hint">In your own words: what you want more of, and what to hide. The model scores every video against this.</p>
+          <textarea id="rubric" rows="7"></textarea>
+          <div class="row">
+            <span id="rubric-count" class="hint"></span>
+            <button type="button" id="reset-rubric" class="link">Reset to the default</button>
+          </div>
+        </section>
+
+        <section>
+          <h2><label for="strictness">Strictness</label></h2>
+          <p class="hint">Higher hides more. Changing this doesn't re-score anything, so it takes effect straight away.</p>
+          <div class="row">
+            <input id="strictness" type="range" min="1" max="5" step="1" />
+            <span id="strictness-label"></span>
+          </div>
+        </section>
+
+        <div class="row">
+          <button type="submit" class="primary">Save</button>
+          <span id="saved" class="hint" role="status"></span>
+        </div>
+      </form>
+
+      <section>
+        <h2>Interests</h2>
+        <p class="hint">Also editable from the toolbar button. Changes save straight away.</p>
+        <div id="interests"></div>
+      </section>
+    </main>
+
+    <script src="settings.js"></script>
+    <script src="chips.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

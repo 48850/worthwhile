@@ -14,8 +14,18 @@ science, literature, theatre), and measures whether sessions felt worth it.
   Both misses were bait shown (Top Gear Classic compilation, CrunchLabs), with
   no good videos hidden. At strictness 3 the same scores gave 96.7%, a one-row
   difference, so the setting stays at 2. M1 PASSED.
-- M2: in progress.
-- M2 onwards: not started. Wait for go-ahead after each milestone.
+- M2 (extension MVP): built 2026-09-23, waiting for the user's manual test on
+  signed-in YouTube. Automated checks passed:
+  - Worker against a mock API: auth, validation, D1 cache, strictness,
+    re-scoring, 3 batches in parallel, model failure, expiry cron.
+  - Content script on a mock home page: hiding, grid, hold, late-filled
+    cards, re-score, errors, on/off, auto-load cap, fail-open.
+  - Popup and options pages.
+  - One live Worker → Claude call: all 4 verdicts matched the holdout labels.
+  Not yet verified: the real YouTube home feed. In particular, whether
+  YouTube's spinner loads the next page when our grid is shorter than the
+  window (the test browser couldn't repaint without input).
+- M3 onwards: not started. Wait for go-ahead after each milestone.
 
 ## Hard constraints
 - Extension in plain JavaScript, NO bundler or build step. The /extension folder
@@ -37,8 +47,14 @@ science, literature, theatre), and measures whether sessions felt worth it.
 
 ## Repo layout
 /extension   manifest.json, content.js, selectors.js, background.js,
-             popup.html, popup.js, options.html, options.js, styles.css
-/worker      src/index.js, src/score.js, src/source.js, wrangler.toml, schema.sql
+             popup.html, popup.js, options.html, options.js, styles.css,
+             settings.js (defaults + loadSettings, shared by all parts),
+             chips.js (interests editor used by popup and options),
+             ui.css (popup/options styles; styles.css is injected into YouTube)
+/worker      src/index.js (HTTP, auth, validation), src/score.js (cache + model),
+             src/source.js (M3), wrangler.toml, schema.sql, dev.js (local run),
+             package.json (wrangler + SDK)
+/scripts     new-invite.js: makes an invite token and prints the D1 insert
 /shared      prompt.js (scoring prompt, used by the worker AND the test script)
 /scripts     score-test.js, titles.csv (tuning set), holdout.csv (never tuned on),
              profile.json, export-titles.console.js (DevTools snippet: copies
@@ -118,6 +134,27 @@ textarea, strictness threshold.
     and duration. M1 matches that.
   - Channel name is optional for scoring. If the channel can't be read, send the
     title alone; never drop the card.
+  - How it works (built):
+    - YouTube's cards are hidden with CSS generated from selectors.js.
+    - Our #ww-feed sits just above YouTube's grid items, below the topic chips.
+    - YouTube's "load more" spinner stays invisible under our grid, so
+      scrolling to the end of our grid loads the next page (verified on a
+      channel grid with real scrolling).
+    - html.ww-hold removes the spinner while a batch is scored, which pauses
+      loading.
+    - After 120 cards per home visit, loading waits for a "Load more" click.
+      This caps scoring cost if nearly everything is being hidden.
+    - Plain clicks on a tile call .click() on YouTube's own link, so
+      navigation stays in-app.
+    - If no card can be read 10s after cards appear, YouTube's feed is
+      restored (fail-open). Any unexpected script error does the same.
+  - POST /score takes up to 60 items and returns verdicts computed with the
+    request's strictness. The model sees items numbered 1..n, never video IDs.
+  - WORKER_URL is a constant in background.js (local: http://127.0.0.1:8787).
+    host_permissions allow 127.0.0.1:8787 and *.workers.dev; narrow the
+    latter to the real subdomain once deployed.
+  - Invite tokens: only SHA-256 hashes are stored (invites table). Make one
+    with scripts/new-invite.js.
 
 M3 — Sourcing, sidebar, Shorts. If fewer than 10 items are approved, the Worker
 searches the YouTube Data API v3 for the user's interests and adds the results
@@ -207,11 +244,29 @@ Design rules that keep it cheap:
 - The API key is a Windows user environment variable, not .env. Shells
   started before it was set can't see it. Read it from the user environment
   (registry) for that one command, or restart the shell.
+- M2: the verdict is computed in the Worker (shared verdictFor with the
+  request's strictness), so the extension needs no copy of the rule. The
+  cache key is SHA-256 of cacheFingerprint(profile), i.e. model + exact system
+  prompt, so wording, rubric or interest changes re-score and strictness
+  doesn't.
+- M2: on any scoring error the affected cards drop their old verdict and are
+  shown, even if they were hidden before (the "Showing everything" notice is
+  literally true).
 
 ## Local development
 - Node 22 (needs >= 20.12 for process.loadEnvFile). `npm install` once in the root.
 - `npm run score-test` scores scripts/titles.csv. `npm run score-test -- scripts/holdout.csv`
   scores another file. Add `--dry-run` to show the prompt without calling the API.
+- Worker, local (no Cloudflare login needed): in /worker, `npm install` once,
+  `npm run db:local` once, then `npm run dev`. dev.js passes Windows
+  environment variables through (CLOUDFLARE_INCLUDE_PROCESS_ENV), which is how
+  ANTHROPIC_API_KEY reaches the local Worker. Don't create a .dev.vars file,
+  or that pass-through stops. Wrangler prints env values as "(hidden)".
+- Extension: chrome://extensions (or edge://extensions) → Developer mode →
+  Load unpacked → the /extension folder. After editing extension files, click
+  the reload icon on its card, then reload YouTube.
+- Worker free-plan CPU limit is 10 ms per request (network waits don't
+  count). Check real usage in the Cloudflare dashboard after deploying.
 - Label titles in a spreadsheet and save as "CSV UTF-8" so curly quotes and
   dashes survive. Row numbers in the output match the spreadsheet's row numbers.
 

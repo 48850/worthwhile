@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Worthwhile",
+  "version": "0.2.0",
+  "description": "Filters your YouTube home feed down to the videos worth your time.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "http://127.0.0.1:8787/*",
+    "https://*.workers.dev/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["settings.js", "selectors.js", "content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "Worthwhile",
+    "default_popup": "popup.html"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  }
+}

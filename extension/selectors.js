@@ -1,0 +1,121 @@
+// extension/selectors.js
+//
+// Everything that depends on YouTube's page structure lives in this file:
+// CSS selectors, the text formats YouTube uses, and the small functions that
+// read a video card. When YouTube changes its page, this is the file to fix.
+// Last checked live on 2026-09-23 (see CLAUDE.md, "YouTube DOM notes").
+// scripts/export-titles.console.js uses the same selectors: keep them in step.
+//
+// Loaded as a plain content script (no modules), so it defines globals that
+// content.js uses: SELECTORS, feedHidingCss, findCards, readCard.
+
+const SELECTORS = {
+  // The home feed. After in-app navigation YouTube keeps previously visited
+  // pages in the DOM (hidden), so only search inside this.
+  homeFeed: 'ytd-browse[page-subtype="home"]',
+
+  // Inside the feed: the grid, and the element whose children are the cards,
+  // followed by YouTube's "load more" spinner as the last child.
+  gridItems: 'ytd-rich-grid-renderer > #contents',
+  continuation: 'ytd-continuation-item-renderer',
+
+  // One video card. ytd-rich-item-renderer is the home grid's wrapper; inside
+  // it YouTube renders the newer yt-lockup-view-model or the older
+  // ytd-rich-grid-media (both seen live Sept 2026).
+  card: 'ytd-rich-item-renderer, yt-lockup-view-model, ytd-rich-grid-media',
+
+  // Link to the video; its v= parameter is the video ID. Shorts link to
+  // /shorts/ so never match. Mixes and playlists are dropped in readCard.
+  watchLink: 'a[href*="/watch?v="]',
+
+  // Present inside cards that are ads, even ones that link to a video.
+  ad: 'ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, ytd-promoted-video-renderer, ytd-display-ad-renderer',
+
+  // Candidate lists are tried in order; the first usable value wins.
+  // attr: read that attribute instead of the element's text. These use tag
+  // names and attributes, not class names: YouTube renames classes often.
+  title: [
+    { css: 'h3[title]', attr: 'title' }, // lockup: heading carries the full title
+    { css: 'yt-lockup-metadata-view-model a[href*="/watch?v="]' }, // lockup: title link text
+    { css: 'a#video-title-link', attr: 'title' }, // older layout
+    { css: '#video-title' }, // older layout, text
+  ],
+  channel: [
+    // Lockup: the metadata is a run of text spans: channel, views, age.
+    // Views and age spans carry an aria-label; the channel span doesn't.
+    // (Collaborations: only the first channel is taken.)
+    { css: 'yt-content-metadata-view-model a[href^="/@"]' }, // channel as a link
+    { css: 'yt-content-metadata-view-model span[role="text"]:not([aria-label])' }, // channel as plain text
+    { css: 'ytd-channel-name #text' }, // older layout
+    { css: 'a#avatar-link', attr: 'title' }, // older layout: channel avatar
+  ],
+  duration: [
+    { css: 'yt-thumbnail-badge-view-model badge-shape' }, // lockup thumbnail badge, e.g. "29:45"
+    { css: 'ytd-thumbnail-overlay-time-status-renderer badge-shape' }, // older layout
+    { css: 'ytd-thumbnail-overlay-time-status-renderer #text' }, // older layout, older markup
+  ],
+
+  // Text that is card metadata, never a channel name: viewer and view
+  // counts ("12K watching", "1.2M views", "790k"), ages ("4 days ago",
+  // "Streamed 22 min ago") and labels ("LIVE", "Premieres ..."). Second
+  // safeguard behind the aria-label check. Assumes YouTube is in English.
+  // A bare number is allowed, since channels can be called "47".
+  notChannel:
+    /^(?:[\d.,]+\s?[kmb]|[\d.,]+\s?[kmb]?\s+(?:watching|waiting|views?)|(?:streamed\s+)?[\d.,]+\s+\S+\s+ago|live(?: now)?|upcoming|new|(?:premieres?|premiered|scheduled for)\b.*)$/i,
+
+  // A real duration badge ("4:05", "1:02:33"), as opposed to "LIVE" etc.
+  durationFormat: /^\d{1,2}(?::\d{2}){1,2}$/,
+};
+
+// CSS that hides YouTube's own home-feed cards while the filter is on
+// (html.ww-on). It's built here so that no YouTube selector lives anywhere
+// else; content.js injects it. YouTube's "load more" spinner stays in place
+// but invisible, right under our grid, so scrolling to the end of our grid
+// still makes YouTube load the next page. html.ww-hold removes the spinner
+// entirely, which pauses loading (used while a batch is being scored).
+function feedHidingCss() {
+  const items = `${SELECTORS.homeFeed} ${SELECTORS.gridItems}`;
+  return [
+    `html.ww-on ${items} > :not(${SELECTORS.continuation}) { display: none !important; }`,
+    `html.ww-on ${items} > ${SELECTORS.continuation} { visibility: hidden !important; }`,
+    `html.ww-on.ww-hold ${items} > ${SELECTORS.continuation} { display: none !important; }`,
+  ].join('\n');
+}
+
+// Cards inside root, in page order. A wrapper and the card inside it both
+// match SELECTORS.card, so only the outermost is kept.
+function findCards(root) {
+  return [...root.querySelectorAll(SELECTORS.card)].filter((el) => !el.parentElement.closest(SELECTORS.card));
+}
+
+// { videoId, title, channel, duration, link } for a plain video card, or null
+// for anything else (Shorts, ads, mixes, playlists). title is '' while
+// YouTube is still filling the card in. link is YouTube's own <a> element.
+function readCard(card) {
+  if (card.closest('[hidden]') || card.querySelector(SELECTORS.ad)) return null;
+  const link = card.querySelector(SELECTORS.watchLink);
+  if (!link) return null;
+  const url = new URL(link.getAttribute('href'), location.origin);
+  if (url.searchParams.has('list')) return null; // mix or playlist
+  const videoId = url.searchParams.get('v');
+  if (!videoId || !/^[\w-]{11}$/.test(videoId)) return null;
+  return {
+    videoId,
+    title: pickText(card, SELECTORS.title),
+    channel: pickText(card, SELECTORS.channel, (v) => !SELECTORS.notChannel.test(v)),
+    duration: pickText(card, SELECTORS.duration, (v) => SELECTORS.durationFormat.test(v)),
+    link,
+  };
+}
+
+// First usable value from a candidate list. Checks every element a candidate
+// matches (not just the first), skipping values that fail isUsable.
+function pickText(card, candidates, isUsable = () => true) {
+  for (const c of candidates) {
+    for (const el of card.querySelectorAll(c.css)) {
+      const value = ((c.attr ? el.getAttribute(c.attr) : el.textContent) || '').replace(/\s+/g, ' ').trim();
+      if (value && isUsable(value)) return value;
+    }
+  }
+  return '';
+}
