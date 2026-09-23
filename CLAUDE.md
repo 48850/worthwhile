@@ -35,7 +35,8 @@ science, literature, theatre), and measures whether sessions felt worth it.
 /worker      src/index.js, src/score.js, src/source.js, wrangler.toml, schema.sql
 /shared      prompt.js (scoring prompt, used by the worker AND the test script)
 /scripts     score-test.js, titles.csv (tuning set), holdout.csv (never tuned on),
-             profile.json
+             profile.json, export-titles.console.js (DevTools snippet: copies
+             home-feed cards as CSV rows; its SELECTORS block seeds selectors.js)
 package.json root: "type": "module" and the @anthropic-ai/sdk dependency.
              The extension ignores it.
 .env         ANTHROPIC_API_KEY for local scripts (gitignored; template in .env.example)
@@ -143,6 +144,23 @@ Design rules that keep it cheap:
   json_each(?) with a single JSON parameter, or use multi-row VALUES capped at
   100 parameters.
 - Check the Workers free-plan request and CPU limits at M2.
+
+## YouTube DOM notes (checked live, signed out, 2026-09-23)
+- Cards use the "lockup" layout: ytd-rich-item-renderer > yt-lockup-view-model
+  on grids, bare yt-lockup-view-model in the /watch sidebar. Not seen:
+  ytd-rich-grid-media (older layout), still listed as a fallback.
+- Class names are camelCase now (ytLockupMetadataViewModelTitle, formerly
+  yt-lockup-metadata-view-model__title) and change often. Select by tag and
+  attribute, not class.
+- Title: h3[title] (full, untruncated). Video ID: first a[href*="/watch?v="].
+- Channel: first span[role="text"] WITHOUT aria-label inside
+  yt-content-metadata-view-model. Views and age spans have aria-labels.
+  Channel, views and age may share one row, so never read a whole row.
+- Signed out with history off, the home page shows no feed at all ("Your
+  YouTube History is off"). Signed-in testers with history paused will see the
+  same. There is nothing to filter, so M3 sourcing has to fill it.
+- Not yet verified against a signed-in home feed. The export snippet reports
+  which selector matched, which is the first place to check.
 
 ## Decisions log
 2026-09-23
