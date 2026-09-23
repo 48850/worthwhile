@@ -1,0 +1,9 @@
+# Secrets: API keys live here, never in git
+.env
+.dev.vars
+
+# Dependencies and build/tool output
+node_modules/
+.wrangler/
+dist/
+*.zip
