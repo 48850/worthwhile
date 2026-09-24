@@ -33,7 +33,7 @@ const MAX_RETURN = 30;
 
 // Defaults if wrangler.toml [vars] doesn't set them.
 const DEFAULT_SEARCHES_PER_DAY = 90; // of YouTube's 100/day search bucket, leaving a margin
-const DEFAULT_UNITS_PER_DAY = 9000; // of the 10,000 units/day for everything else
+export const DEFAULT_UNITS_PER_DAY = 9000; // of the 10,000 units/day for everything else
 const DEFAULT_SEARCHES_PER_TESTER = 10; // so one tester can't use up everyone's searches
 
 // profile: { rubric, interests, strictness }
@@ -150,7 +150,7 @@ async function cachedQuery(env, key, now, fetch) {
 
 // Records `amount` against today's `bucket` if that keeps it within `max`.
 // Returns false (and records nothing) if it would go over.
-async function spend(env, bucket, amount, max) {
+export async function spend(env, bucket, amount, max) {
   const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(new Date()); // YYYY-MM-DD
   try {
     const { meta } = await env.DB.prepare(
@@ -166,7 +166,7 @@ async function spend(env, bucket, amount, max) {
   }
 }
 
-function limit(value, fallback) {
+export function limit(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
@@ -184,7 +184,7 @@ export async function deleteExpiredSearches(env) {
 // YouTube Data API v3
 // ---------------------------------------------------------------------------
 
-async function youtube(env, path, params) {
+export async function youtube(env, path, params) {
   const base = env.YOUTUBE_API_BASE || 'https://www.googleapis.com/youtube/v3'; // override only for offline tests
   const url = new URL(`${base}/${path}`);
   for (const [key, value] of Object.entries({ ...params, key: env.YOUTUBE_API_KEY })) url.searchParams.set(key, value);

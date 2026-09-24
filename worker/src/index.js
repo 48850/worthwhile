@@ -3,6 +3,7 @@
 // HTTP entry point.
 //   POST /score   score a batch of feed items (needs an invite token)
 //   POST /source  find extra approved videos for the grid (needs an invite token)
+//   POST /score-shorts  score Shorts by video ID, with thumbnails (needs an invite token)
 //   GET  /health  liveness check, no token needed
 // Plus a daily cron (wrangler.toml) that deletes expired cache rows.
 //
@@ -20,10 +21,17 @@
 // → 200 { "items": [{ "id", "title", "channel", "channelId", "duration", "views", "publishedAt", "source" }], ... }
 //   source is "channel" or "interest:<interest>". Only approved videos are returned.
 //
+// POST /score-shorts
+//   Authorization: Bearer <invite token>
+//   { "profile": { ...as above }, "ids": ["<11-char video ID>", ...] } (1 to 20)
+// → 200 same shape as /score. The Worker looks up each Short's details and
+//   thumbnail itself (worker/src/shorts.js).
+//
 // Errors: 401 bad or missing token, 400 bad request, 503 database unavailable.
 
 import { MAX_EXAMPLES } from '../../shared/prompt.js';
 import { deleteExpiredScores, scoreItems, sha256Hex } from './score.js';
+import { scoreShorts } from './shorts.js';
 import { deleteExpiredSearches, sourceItems } from './source.js';
 
 const LIMITS = {
@@ -35,6 +43,7 @@ const LIMITS = {
   interests: 30,
   interest: 80,
   channels: 20, // per /source request
+  shorts: 20, // per /score-shorts request (one videos.list call, two model calls)
 };
 
 export default {
@@ -42,7 +51,7 @@ export default {
     const { pathname } = new URL(request.url);
     try {
       if (pathname === '/health') return json({ ok: true });
-      if (pathname === '/score' || pathname === '/source') {
+      if (pathname === '/score' || pathname === '/source' || pathname === '/score-shorts') {
         if (request.method !== 'POST') return json({ error: 'Use POST' }, 405);
         return await handle(pathname, request, env, ctx);
       }
@@ -76,7 +85,9 @@ async function handle(pathname, request, env, ctx) {
   } catch {
     return json({ error: 'Body must be JSON' }, 400);
   }
-  const problem = checkProfile(body?.profile) || (pathname === '/score' ? checkItems(body.items) : checkChannels(body.channels));
+  const problem =
+    checkProfile(body?.profile) ||
+    (pathname === '/score' ? checkItems(body.items) : pathname === '/score-shorts' ? checkIds(body.ids) : checkChannels(body.channels));
   if (problem) return json({ error: problem }, 400);
 
   const profile = {
@@ -88,6 +99,8 @@ async function handle(pathname, request, env, ctx) {
     // prompt, so they're part of the cache key too.
     examples: (body.profile.examples || []).map((e) => ({ title: e.title.trim(), channel: (e.channel || '').trim(), verdict: e.verdict })),
   };
+
+  if (pathname === '/score-shorts') return json(await scoreShorts(env, ctx, profile, [...new Set(body.ids)]));
 
   if (pathname === '/source') {
     const channels = (body.channels || []).map((c) => (c.id ? { id: c.id } : { handle: c.handle }));
@@ -158,6 +171,12 @@ function checkItems(items) {
       return 'duration must be short text like "12:03"';
     }
   }
+  return null;
+}
+
+function checkIds(ids) {
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > LIMITS.shorts) return `ids must be a list of 1 to ${LIMITS.shorts}`;
+  if (ids.some((id) => typeof id !== 'string' || !/^[A-Za-z0-9_-]{11}$/.test(id))) return 'Each id must be an 11-character video id';
   return null;
 }
 

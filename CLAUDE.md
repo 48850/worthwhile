@@ -346,10 +346,30 @@ and auto-advance if it fails.
     comparison). The options page summarises "listed N of M in advance"
     (network-checked rows only) and copies CSV:
     video_id, title, channel, my_verdict, queue_check.
-  - Still to build: scoring Shorts with a ~320px thumbnail (Haiku image
-    input) plus title, hashtags, channel and description (videos.list);
-    score-test.js Shorts mode by video ID. Target 85% on a holdout of the
-    user's ~90 labelled Shorts (a third bait), split like M1.
+  - The sequence includes ads, not only Shorts: e.g. an entry whose
+    videos.list channel is "Video ad upload channel for …". Worth
+    handling in Phase 2 (don't count them, or treat them as bait).
+  - Shorts scoring (built, not yet wired into the extension):
+    - POST /score-shorts { profile, ids (1-20) } in worker/src/shorts.js.
+      For uncached IDs: one videos.list call (part=snippet, 1 unit from the
+      shared daily budget), then each thumbnail from i.ytimg.com
+      (hqdefault.jpg, 480x360, the vertical frame in the middle, ~250
+      tokens; oar2.jpg is the full 1080x1920 frame but ~6x the cost). The
+      Worker fetches the image and sends it base64, so video IDs never
+      reach the model. No image: scored on text. Not found: unscored (show).
+    - shared/prompt.js: buildShortsRequest, SHORTS_BATCH_SIZE 10, and a
+      Shorts paragraph in the system prompt (feed prompt byte-identical, so
+      feed cache keys didn't change). Shorts have their own cache key
+      (cacheFingerprint(profile, { shorts: true })), same D1 scores table.
+    - shortFromVideo() turns a videos.list item into { title, channel,
+      tags (10), description (300 chars) }; the Worker and score-test.js
+      share it so the test measures production.
+    - score-test.js --shorts <csv> (video_id, my_verdict; title/channel
+      optional) looks each Short up on YouTube itself (needs
+      YOUTUBE_API_KEY) and scores with thumbnails; --no-images scores the
+      same rows from text only, to see what images add.
+    - Target 85% on a holdout of the user's ~90 labelled Shorts (a third
+      bait), split like M1: tune on the rest, run the holdout once.
   Phase 2 only if Phase 1 passes: pre-score the queue and skip bait before
   it's shown. The choice is between skipping on arrival (player hidden and
   muted; may leak a frame) and filtering reel_watch_sequence at the source

@@ -10,7 +10,7 @@
 // Privacy: logs contain counts only, never titles or video IDs.
 
 import Anthropic from '@anthropic-ai/sdk';
-import { BATCH_SIZE, buildRequest, cacheFingerprint, parseScores, verdictFor } from '../../shared/prompt.js';
+import { BATCH_SIZE, SHORTS_BATCH_SIZE, buildRequest, buildShortsRequest, cacheFingerprint, parseScores, verdictFor } from '../../shared/prompt.js';
 
 const CACHE_SECONDS = 7 * 24 * 60 * 60;
 
@@ -18,16 +18,22 @@ const CACHE_SECONDS = 7 * 24 * 60 * 60;
 // items: [{ id, title, channel, duration, description? }]
 // maxNew: score at most this many uncached items with the model (the rest
 // come back unscored; sourcing uses this to spread the cost over calls).
+// shorts: score with the Shorts prompt (text plus thumbnail; own cache key).
+// prepare: optional async (items) => items, run only on the uncached items
+// before the model sees them (Shorts use it to fetch details and thumbnails).
+// Items it drops stay unscored.
 // Returns { results: { [id]: { verdict, scores } }, cached, scored, unscored }.
-export async function scoreItems(env, ctx, profile, items, { maxNew = Infinity } = {}) {
-  const profileHash = await sha256Hex(cacheFingerprint(profile));
+export async function scoreItems(env, ctx, profile, items, { maxNew = Infinity, shorts = false, prepare = null } = {}) {
+  const profileHash = await sha256Hex(cacheFingerprint(profile, { shorts }));
   const now = Math.floor(Date.now() / 1000);
 
   const scores = await readCache(env, profileHash, items.map((item) => item.id), now);
   const cached = scores.size;
   const missing = items.filter((item) => !scores.has(item.id));
 
-  const fresh = await scoreWithModel(env, profile, missing.slice(0, maxNew));
+  let toScore = missing.slice(0, maxNew);
+  if (prepare && toScore.length) toScore = await prepare(toScore);
+  const fresh = await scoreWithModel(env, profile, toScore, { shorts });
   for (const [id, s] of fresh) scores.set(id, s);
   if (fresh.size) ctx.waitUntil(writeCache(env, profileHash, fresh, now)); // don't make the user wait for the write
 
@@ -82,7 +88,7 @@ async function writeCache(env, profileHash, fresh, now) {
 }
 
 // Map of video ID -> scores for the items the model scored successfully.
-async function scoreWithModel(env, profile, items) {
+async function scoreWithModel(env, profile, items, { shorts = false } = {}) {
   const result = new Map();
   if (items.length === 0) return result;
   if (!env.ANTHROPIC_API_KEY) {
@@ -97,8 +103,10 @@ async function scoreWithModel(env, profile, items) {
     timeout: 25_000, // ms
   });
 
+  const size = shorts ? SHORTS_BATCH_SIZE : BATCH_SIZE;
+  const build = shorts ? buildShortsRequest : buildRequest;
   const batches = [];
-  for (let i = 0; i < items.length; i += BATCH_SIZE) batches.push(items.slice(i, i + BATCH_SIZE));
+  for (let i = 0; i < items.length; i += size) batches.push(items.slice(i, i + size));
 
   await Promise.all(
     batches.map(async (batch) => {
@@ -106,7 +114,7 @@ async function scoreWithModel(env, profile, items) {
       // video IDs are never sent to the model.
       const numbered = batch.map((item, n) => ({ ...item, id: String(n + 1) }));
       try {
-        const response = await client.messages.create(buildRequest(profile, numbered));
+        const response = await client.messages.create(build(profile, numbered));
         const parsed = parseScores(response, numbered);
         numbered.forEach((item, n) => {
           const s = parsed.get(item.id);
