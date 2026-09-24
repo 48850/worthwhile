@@ -231,14 +231,21 @@ html.ww-on #ww-feed {
   display: none;
 }
 
-/* "Wrong call" on YouTube's cards. Hidden until the card is hovered (the
-   hover rule is generated in selectors.js). Top left, because YouTube's hover
-   preview puts its own buttons top right. */
-.ww-wrong {
+/* "Wrong call" and "Hide channel" on YouTube's cards. Hidden until the card
+   is hovered (the hover rule is generated in selectors.js). Top left, because
+   YouTube's hover preview puts its own buttons top right. */
+.ww-actions {
   position: absolute;
   top: 8px;
   left: 8px;
   z-index: 10;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.ww-actions button {
   padding: 4px 10px;
   border: 0;
   border-radius: 14px;
@@ -246,11 +253,8 @@ html.ww-on #ww-feed {
   color: #fff;
   background: rgba(0, 0, 0, 0.75);
   cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s;
 }
-.ww-wrong:hover {
+.ww-actions button:hover {
   background: rgba(0, 0, 0, 0.9);
 }
 

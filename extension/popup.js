@@ -17,6 +17,19 @@ loadSettings().then((s) => {
   tokenWarning.hidden = Boolean(s.token);
 });
 
+// Server status: shown from the last known state straight away, then
+// re-checked (background.js pings the Worker).
+const offline = document.getElementById('offline');
+function showStatus(status) {
+  offline.hidden = status !== 'offline';
+  if (status === 'bad-token') {
+    tokenWarning.hidden = false;
+    tokenWarning.firstChild.textContent = 'Your invite token wasn\'t accepted, so nothing is filtered. Check it in ';
+  }
+}
+chrome.storage.session.get({ serverStatus: 'unknown' }).then(({ serverStatus }) => showStatus(serverStatus));
+chrome.runtime.sendMessage({ type: 'checkServer' }).then((reply) => showStatus(reply?.serverStatus), () => {});
+
 enabledBox.addEventListener('change', () => {
   showEnabled(enabledBox.checked);
   chrome.storage.sync.set({ enabled: enabledBox.checked });

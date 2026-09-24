@@ -11,6 +11,30 @@ const strictness = document.getElementById('strictness');
 const strictnessLabel = document.getElementById('strictness-label');
 const saved = document.getElementById('saved');
 const shortsLabels = document.getElementById('shorts-labels');
+const hideShortsShelf = document.getElementById('hide-shorts-shelf');
+
+// Hidden channels: listed with an Unhide button each, saved immediately.
+function showHiddenChannels(list) {
+  const ul = document.getElementById('hidden-channels');
+  ul.replaceChildren(
+    ...list.map((name) => {
+      const li = document.createElement('li');
+      const label = document.createElement('span');
+      label.textContent = name;
+      const unhide = document.createElement('button');
+      unhide.type = 'button';
+      unhide.className = 'link';
+      unhide.textContent = 'Unhide';
+      unhide.addEventListener('click', () => setChannelHidden(name, false));
+      li.append(label, unhide);
+      return li;
+    }),
+  );
+  document.getElementById('no-hidden-channels').hidden = list.length > 0;
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'sync' && changes.hiddenChannels) showHiddenChannels(changes.hiddenChannels.newValue || []);
+});
 
 const STRICTNESS_NAMES = {
   1: '1: lenient',
@@ -42,6 +66,8 @@ loadSettings().then((s) => {
   rubric.value = s.rubric;
   strictness.value = String(s.strictness);
   shortsLabels.checked = s.shortsLabels;
+  hideShortsShelf.checked = s.hideShortsShelf;
+  showHiddenChannels(s.hiddenChannels);
   for (const r of ruleInputs) r.checked = r.value === s.rule;
   showStrictness();
   showRubricCount();
@@ -63,6 +89,7 @@ form.addEventListener('submit', async (event) => {
     rule: ruleInputs.find((r) => r.checked)?.value || 'bait',
     strictness: Number(strictness.value),
     shortsLabels: shortsLabels.checked,
+    hideShortsShelf: hideShortsShelf.checked,
   });
   saved.textContent = 'Saved.';
   setTimeout(() => (saved.textContent = ''), 2500);

@@ -211,3 +211,15 @@ label.check {
   margin-bottom: 4px;
   cursor: pointer;
 }
+
+/* Hidden channels list on the options page */
+.channel-list {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+.channel-list li {
+  margin: 4px 0;
+}
+.channel-list button {
+  margin-left: 10px;
+}

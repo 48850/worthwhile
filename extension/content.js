@@ -114,6 +114,13 @@
 
   function updateRootClass() {
     document.documentElement.classList.toggle('ww-on', isActive());
+    document.documentElement.classList.toggle('ww-no-shorts', isActive() && settings.hideShortsShelf);
+  }
+
+  // "Hide channel": hidden outright, no model involved.
+  function channelHidden(id) {
+    const channel = (known.get(id)?.channel || '').toLowerCase();
+    return channel !== '' && settings.hiddenChannels.some((c) => c.toLowerCase() === channel);
   }
 
   function onNavigate() {
@@ -206,9 +213,9 @@
       order.push(id);
       known.set(id, item);
       cardFor.set(id, card);
-      addWrongCallButton(card, id);
+      addActions(card, id);
       apply(id);
-      if (!verdicts.has(id) && !failed.has(id) && !inFlight.has(id) && !overrides.has(id)) queue.add(id);
+      if (!verdicts.has(id) && !failed.has(id) && !inFlight.has(id) && !overrides.has(id) && !channelHidden(id)) queue.add(id);
     }
     feedOrder = order;
     if (order.length) clearTimeout(failOpenTimer);
@@ -221,7 +228,7 @@
   function apply(id, force = false) {
     const card = cardFor.get(id);
     if (!card || !card.isConnected) return;
-    const verdict = overrides.get(id) || verdicts.get(id) || (failed.has(id) ? 'show' : null);
+    const verdict = overrides.get(id) || (channelHidden(id) ? 'hide' : null) || verdicts.get(id) || (failed.has(id) ? 'show' : null);
     if (!verdict) return; // not scored yet: stays invisible until revealLate
     if (verdict === 'show') {
       leftInPlace.delete(id);
@@ -344,7 +351,7 @@
     if (code === 'no-token') return 'Add your invite token in Worthwhile settings.';
     if (code === 'bad-token') return 'Your invite token wasn\'t accepted. Check it in Worthwhile settings.';
     if (code === 'extension-reloaded') return 'Worthwhile was updated. Reload this page.';
-    return 'Couldn\'t reach the Worthwhile server, so nothing is being filtered.';
+    return 'Offline: showing everything. Worthwhile can\'t reach its server.';
   }
 
   function onStorageChanged(changes, area) {
@@ -359,10 +366,21 @@
       return;
     }
     if (area !== 'sync') return;
+    const hiddenBefore = new Set(feedOrder.filter(channelHidden));
     for (const [key, change] of Object.entries(changes)) {
       if (key in DEFAULT_SETTINGS) settings[key] = change.newValue === undefined ? DEFAULT_SETTINGS[key] : change.newValue;
     }
     updateRootClass();
+    if (changes.hiddenChannels) {
+      // Only the affected channels' cards move, straight away (the user asked).
+      for (const id of feedOrder) {
+        if (channelHidden(id) === hiddenBefore.has(id)) continue;
+        apply(id, true);
+        if (!channelHidden(id) && !verdicts.has(id) && !overrides.has(id)) queue.add(id); // un-hidden: needs a score now
+      }
+      render();
+      sendNext();
+    }
     if ('enabled' in changes) onNavigate();
     if (['token', 'rubric', 'interests', 'rule', 'strictness'].some((key) => key in changes)) scheduleRescore(true);
   }
@@ -383,7 +401,7 @@
       safe(() => {
         generation++; // ignore replies to requests sent before the edit finished
         if (force) forceGeneration = generation;
-        for (const id of feedOrder) if (!overrides.has(id)) queue.add(id);
+        for (const id of feedOrder) if (!overrides.has(id) && !channelHidden(id)) queue.add(id);
         failed.clear();
         sourcedGeneration = -1; // new settings: new sourced videos too
         if (isActive() && onHome()) onNavigate();
@@ -398,21 +416,40 @@
   // Corrections
   // ---------------------------------------------------------------------------
 
-  // "Wrong call" on a visible card: hide it, and remember "should've hidden".
-  function addWrongCallButton(card, id) {
-    let button = card.querySelector(':scope > .ww-wrong');
-    if (!button) {
-      button = wwEl('button', { className: 'ww-wrong', text: 'Wrong call' });
-      button.type = 'button';
-      button.title = 'Worthwhile: this is bait. Hide it and learn from it.';
-      button.addEventListener('click', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        correct(button.dataset.videoId, 'hide');
-      });
-      card.appendChild(button);
+  // On hover over a visible card:
+  //   "Wrong call"    hide it, and remember "should've hidden" (a correction)
+  //   "Hide channel"  hide every video from this channel, no model involved
+  //                   (undo from the list on the options page)
+  function addActions(card, id) {
+    let actions = card.querySelector(':scope > .ww-actions');
+    if (!actions) {
+      actions = wwEl('div', { className: 'ww-actions' });
+      const wrong = wwEl('button', { className: 'ww-wrong', text: 'Wrong call' });
+      wrong.title = 'Worthwhile: this is bait. Hide it and learn from it.';
+      const channel = wwEl('button', { className: 'ww-hide-channel', text: 'Hide channel' });
+      for (const button of [wrong, channel]) {
+        button.type = 'button';
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        });
+      }
+      wrong.addEventListener('click', safe(() => correct(actions.dataset.videoId, 'hide')));
+      channel.addEventListener(
+        'click',
+        safe(() => {
+          const name = known.get(actions.dataset.videoId)?.channel;
+          if (name) setChannelHidden(name, true).catch(onUnexpectedError);
+        }),
+      );
+      actions.append(wrong, channel);
+      card.appendChild(actions);
     }
-    button.dataset.videoId = id;
+    actions.dataset.videoId = id;
+    const name = known.get(id)?.channel || '';
+    const channelButton = actions.querySelector('.ww-hide-channel');
+    channelButton.hidden = !name; // no channel name on the card: nothing to hide by
+    channelButton.title = `Worthwhile: hide every video from ${name}. Undo in settings.`;
   }
 
   // "Show it anyway" (verdict 'show') or "Wrong call" (verdict 'hide').
@@ -505,7 +542,7 @@
   function render() {
     if (!ui) return;
     const hidden = feedOrder.filter((id) => cardFor.get(id)?.getAttribute('data-ww') === 'hide');
-    const pending = feedOrder.filter((id) => !verdicts.has(id) && !failed.has(id) && !overrides.has(id)).length;
+    const pending = feedOrder.filter((id) => !verdicts.has(id) && !failed.has(id) && !overrides.has(id) && !channelHidden(id)).length;
 
     const parts = [`${hidden.length} hidden`];
     if (pending || sending) parts.push('scoring…');
@@ -540,7 +577,7 @@
           const link = wwEl('a', { text: title });
           link.href = `/watch?v=${id}`;
           const s = scoresOf.get(id);
-          const why = overrides.get(id) === 'hide' ? 'you marked it' : s ? `bait ${s.bait} · interest ${s.interest_match} · substance ${s.substance}` : '';
+          const why = overrides.get(id) === 'hide' ? 'you marked it' : channelHidden(id) ? 'channel hidden' : s ?`bait ${s.bait} · interest ${s.interest_match} · substance ${s.substance}` : '';
           row.append(link, wwEl('span', { className: 'ww-hidden-meta', text: [channel, why].filter(Boolean).join(' · ') }));
           const show = wwEl('button', { className: 'ww-show-anyway', text: 'Show it anyway' });
           show.type = 'button';

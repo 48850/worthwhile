@@ -18,7 +18,19 @@ const DEFAULT_SETTINGS = {
   rule: 'bait', // 'bait': hide clear bait only (default). 'strict': the original rule, uses strictness.
   strictness: 2, // Strict rule only: 1 (lenient) to 5 (strict). 2 passed the M1 holdout test.
   shortsLabels: false, // label bait Shorts (never skips); off by default
+  hideShortsShelf: true, // hide the Shorts shelf on the home page: titles too thin to score, mostly slop
+  hiddenChannels: [], // channel names hidden outright by "Hide channel", no model involved
 };
+
+const MAX_HIDDEN_CHANNELS = 200;
+
+// Adds or removes a channel from the "Hide channel" list (matched by name,
+// ignoring case).
+async function setChannelHidden(name, hidden) {
+  const { hiddenChannels } = await loadSettings();
+  const others = hiddenChannels.filter((c) => c.toLowerCase() !== name.toLowerCase());
+  await chrome.storage.sync.set({ hiddenChannels: hidden ? [name, ...others].slice(0, MAX_HIDDEN_CHANNELS) : others });
+}
 
 const SETTINGS_LIMITS = {
   interests: 20, // how many interests

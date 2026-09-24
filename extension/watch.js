@@ -34,7 +34,8 @@
     for (const [key, change] of Object.entries(changes)) {
       if (key in DEFAULT_SETTINGS) settings[key] = change.newValue === undefined ? DEFAULT_SETTINGS[key] : change.newValue;
     }
-    if (['enabled', 'token', 'rubric', 'interests', 'strictness'].some((key) => key in changes)) {
+    if (changes.hiddenChannels) scan();
+    if (['enabled', 'token', 'rubric', 'interests', 'rule', 'strictness'].some((key) => key in changes)) {
       generation++;
       verdicts.clear();
       queue.clear();
@@ -80,7 +81,9 @@
     for (const card of findCards(sidebar)) {
       const item = readCard(card);
       if (!item || !item.title) continue; // mixes, playlists, ads, unfilled cards: left alone
-      const verdict = verdicts.get(item.videoId) || 'pending';
+      const channel = item.channel.toLowerCase();
+      const channelHidden = channel !== '' && settings.hiddenChannels.some((c) => c.toLowerCase() === channel);
+      const verdict = channelHidden ? 'hide' : verdicts.get(item.videoId) || 'pending';
       if (card.getAttribute('data-ww-verdict') !== verdict) card.setAttribute('data-ww-verdict', verdict);
       if (verdict === 'pending' && !inFlight.has(item.videoId)) queue.set(item.videoId, item);
     }

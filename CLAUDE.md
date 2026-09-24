@@ -294,6 +294,24 @@ and auto-advance if it fails.
     20 kept, 10 newest sent as examples. A correction overrides that video's
     verdict, and every other card is re-scored with the new examples (no
     on-screen jumps).
+  - Added 2026-09-25, after a day-2 real-feed test found YouTube completely
+    unfiltered. Cause: the local Worker wasn't running, and it failed open
+    silently.
+    - Failing open is now visible. background.js tracks serverStatus
+      (session storage). The toolbar badge shows "!" with the tooltip
+      "Offline: showing everything". The popup shows a banner and re-checks
+      /health each time it opens. The in-page bar says "Offline: showing
+      everything".
+    - "Hide channel" next to "Wrong call" on hover. The channel name goes in
+      sync setting hiddenChannels (max 200, case-insensitive). Its videos
+      are hidden instantly, never sent to the model, and hidden in the
+      /watch sidebar too. Undo with Unhide on the options page.
+    - The Shorts shelf on home is hidden by default (sync setting
+      hideShortsShelf, html.ww-no-shorts). It hides any grid section, and
+      any single card, containing a /shorts/ link. Not yet checked on a
+      signed-in home feed.
+    - "It's Just Ragebait Bro." (Joe Bartolozzi) scores bait 10, 3 of 3
+      runs, with or without the channel name: hidden once scoring runs.
   - Per-session correction COUNT to D1: deferred to M4, where the session
     log table is designed. Only the count will be sent, never titles.
   - Fail-open: unscored = shown, errors = shown. If no card can be read for

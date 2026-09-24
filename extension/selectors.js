@@ -25,6 +25,14 @@ const SELECTORS = {
   // the spinner are other children, and are left alone.
   gridCard: 'ytd-rich-item-renderer',
 
+  // Full-width sections in the home grid (the Shorts shelf, news shelves),
+  // and what marks Shorts: a link to /shorts/. The shelf is hidden when
+  // "Hide the Shorts shelf" is on (html.ww-no-shorts). NOT YET CHECKED on a
+  // signed-in home feed (signed out there is no feed); matching any section
+  // with a /shorts/ link is deliberately loose.
+  shelf: 'ytd-rich-section-renderer',
+  shortsLink: 'a[href^="/shorts/"]',
+
   // One video card. ytd-rich-item-renderer is the home grid's wrapper; inside
   // it YouTube renders the newer yt-lockup-view-model or the older
   // ytd-rich-grid-media (both seen live Sept 2026).
@@ -146,7 +154,9 @@ function feedHidingCss() {
     `${card}:not([data-ww]) { visibility: hidden !important; }`,
     `${card}[data-ww="hide"] { display: none !important; }`,
     `${card}[data-ww][data-ww-marking] { display: block !important; visibility: visible !important; position: fixed !important; left: -10000px !important; top: 0 !important; width: 360px !important; }`,
-    `${card}:hover > .ww-wrong, ${card} > .ww-wrong:focus-visible { opacity: 1; pointer-events: auto; }`,
+    `${card}:hover > .ww-actions, ${card} > .ww-actions:focus-within { opacity: 1; pointer-events: auto; }`,
+    `html.ww-on.ww-no-shorts ${items} > ${SELECTORS.shelf}:has(${SELECTORS.shortsLink}) { display: none !important; }`,
+    `html.ww-on.ww-no-shorts ${items} > ${SELECTORS.gridCard}:has(${SELECTORS.shortsLink}) { display: none !important; }`,
     `html.ww-on ${SELECTORS.sidebar} [data-ww-verdict="hide"] { display: none !important; }`,
     `html.ww-on ${SELECTORS.sidebar} [data-ww-verdict="pending"] { opacity: 0.35; }`,
     ...themeCss(),

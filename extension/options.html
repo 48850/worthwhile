@@ -49,6 +49,11 @@
         <section>
           <h2>Shorts</h2>
           <label class="check">
+            <input id="hide-shorts-shelf" type="checkbox" />
+            Hide the Shorts shelf on the home page
+          </label>
+          <p class="hint">Shorts titles are too thin to judge, and the shelf is where most of the slop is.</p>
+          <label class="check">
             <input id="shorts-labels" type="checkbox" />
             Label bait in Shorts
           </label>
@@ -60,6 +65,13 @@
           <span id="saved" class="hint" role="status"></span>
         </div>
       </form>
+
+      <section>
+        <h2>Hidden channels</h2>
+        <p class="hint">Channels you hid with "Hide channel". Their videos are hidden without being scored. Changes apply straight away.</p>
+        <ul id="hidden-channels" class="channel-list"></ul>
+        <p id="no-hidden-channels" class="hint">None yet. Hover a video on YouTube's home page and click "Hide channel".</p>
+      </section>
 
       <section>
         <h2>Interests</h2>
