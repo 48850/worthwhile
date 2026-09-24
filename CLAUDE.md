@@ -327,15 +327,24 @@ and auto-advance if it fails.
       .reel-video-in-sequence-new#0..N (13-17 seen). Slot 0 is playing, the
       rest come next in order. Each slot has a thumbnail whose URL holds
       the video ID (readShortsQueue in selectors.js).
-    - The source is YouTube's reel_watch_sequence request, whose entries
-      list the next Shorts in order.
-    - One real swipe matched the prediction; my test browser couldn't
-      swipe more.
+    - The DOM queue proved unreliable on the user's signed-in account (35
+      of 99 listed in advance), so the primary source is now YouTube's
+      network request /youtubei/v1/reel/reel_watch_sequence. shorts-main.js
+      ("world": "MAIN") wraps fetch, reads a clone of the response
+      (entries[].command.reelWatchEndpoint.videoId, in play order; some
+      entries also carry unserializedPrefetchData.playerResponse.videoDetails
+      title/author/shortDescription), and posts the list to shorts.js with
+      window.postMessage. It is read-only: YouTube's response is untouched.
+    - Live check (signed out, 2026-09-25): 15 of 15 swipes played in exactly
+      the list's order. Lists hold ~11-13 Shorts; the next list arrived
+      while Short 12 of 13 was playing, so there is always at least one
+      Short of warning (8 s at fast swiping).
   - "Collect Shorts" (options page, off by default) records every Short
     swiped to (id, title, channel) in chrome.storage.local collectedShorts
-    (max 500). It also checks against the queue snapshot taken 1.5 s into
-    the previous Short: queued yes/no and how many slots ahead. The options
-    page summarises "listed N of M in advance" and copies CSV:
+    (max 500), with whether the network list had named it and how many
+    seconds before it played (queuedDom keeps the DOM check for
+    comparison). The options page summarises "listed N of M in advance"
+    (network-checked rows only) and copies CSV:
     video_id, title, channel, my_verdict, queue_check.
   - Still to build: scoring Shorts with a ~320px thumbnail (Haiku image
     input) plus title, hashtags, channel and description (videos.list);

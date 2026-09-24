@@ -17,6 +17,12 @@
       "js": ["settings.js", "selectors.js", "common.js", "notinterested.js", "content.js", "watch.js", "shorts.js"],
       "css": ["styles.css"],
       "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["shorts-main.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "action": {

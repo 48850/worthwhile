@@ -9,20 +9,44 @@
 //
 // "Collect Shorts" (options page, for building a labelled test set): as the
 // user swipes, each Short's ID, title and channel are recorded on this
-// device, with a check of whether YouTube's upcoming-Shorts queue had
-// already listed it (and how many slots ahead). The options page copies
+// device, with a check of whether YouTube's upcoming-Shorts list (read from
+// its network response by shorts-main.js) had already named it, and how many
+// seconds before it played. The options page copies
 // them as CSV. This works whether or not the filter itself is on.
 
 (() => {
-  const SNAPSHOT_AFTER_MS = 1500; // read the queue once a Short has settled
+  const QUEUE_POLL_MS = 500; // backstop to the MutationObserver
+  const FORGET_AFTER_MS = 30 * 60 * 1000;
   const MAX_COLLECTED = 500;
 
   let settings = { ...DEFAULT_SETTINGS };
   const verdicts = new Map(); // shortId -> 'show' | 'hide'
   let lastId = null;
   let lastTitle = '';
-  let snapshot = { queue: [], current: null }; // the queue as it was while the previous Short played
-  let snapshotTimer = 0;
+
+  // Every Short seen in YouTube's upcoming queue, and when it first appeared.
+  // Watched continuously (not one snapshot per Short), so fast swipes can't
+  // make the check look at an out-of-date queue.
+  const firstSeenInQueue = new Map(); // shortId -> ms
+  let queueObserver = null;
+  let queuePoll = 0;
+  let watchingSince = 0;
+
+  // YouTube's own list of upcoming Shorts, read from its network response by
+  // shorts-main.js (the more reliable source). Always listening: the first
+  // list arrives as the Shorts page loads.
+  const firstSeenInSequence = new Map(); // shortId -> ms
+  const upcomingDetails = new Map(); // shortId -> { title, channel, description } when YouTube sent them
+  window.addEventListener('message', (event) => {
+    if (event.source !== window || event.data?.source !== 'worthwhile-main' || event.data.type !== 'shorts-sequence') return;
+    const now = Date.now();
+    for (const s of Array.isArray(event.data.shorts) ? event.data.shorts : []) {
+      if (typeof s?.id !== 'string' || !/^[\w-]{11}$/.test(s.id)) continue; // page messages are untrusted: check the shape
+      if (!firstSeenInSequence.has(s.id)) firstSeenInSequence.set(s.id, now);
+      const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : null);
+      upcomingDetails.set(s.id, { title: text(s.title, 300), channel: text(s.channel, 150), description: text(s.description, 300) });
+    }
+  });
 
   loadSettings().then((stored) => {
     settings = stored;
@@ -57,20 +81,22 @@
   async function check() {
     removeLabel();
     const match = /^\/shorts\/([\w-]{11})/.exec(location.pathname);
-    if (!match) return;
+    if (!match) {
+      stopWatchingQueue();
+      return;
+    }
     const id = match[1];
     if (id === lastId) return;
     lastId = id;
     const collecting = settings.collectShorts;
+    if (collecting) watchQueue();
+    else stopWatchingQueue();
     if (!collecting && !isOn()) return;
 
-    // Was this Short in the queue while the previous one played? Checked
-    // before anything else, against the snapshot taken back then.
+    // Had this Short already appeared in the queue before it came up?
+    // Checked first, before the queue is read again.
     const queueCheck = collecting ? checkQueue(id) : null;
-    clearTimeout(snapshotTimer);
-    snapshotTimer = setTimeout(() => {
-      if (location.pathname === `/shorts/${id}`) snapshot = { queue: readShortsQueue(), current: id };
-    }, SNAPSHOT_AFTER_MS);
+    noteQueue();
 
     // The title catches up with the new Short a moment after the URL. Only
     // trust a title that belongs to this Short: the player's title once it
@@ -104,15 +130,52 @@
     if (verdict === 'hide' && location.pathname === `/shorts/${id}` && isOn()) showLabel();
   }
 
-  // { queued: 'yes' | 'no' | 'unknown', ahead }: whether the queue (read
-  // while the previous Short played) already listed this one, and how many
-  // slots after the previous Short it was (1 = the very next slot).
+  // { queued: 'yes' | 'no' | 'unknown', lead }: whether this Short had
+  // already appeared in the queue, and how many seconds before it came up.
+  // 'unknown' for the first Short after the watching started (nothing to
+  // compare with yet).
+  // queued/lead: YouTube's network list of upcoming Shorts (the source we'd
+  // pre-score from). queuedDom: the page's own queue, kept for comparison.
   function checkQueue(id) {
-    if (snapshot.queue.length === 0) return { queued: 'unknown', ahead: null };
-    const at = snapshot.queue.indexOf(id);
-    if (at === -1) return { queued: 'no', ahead: null };
-    const from = snapshot.queue.indexOf(snapshot.current);
-    return { queued: 'yes', ahead: from === -1 ? null : at - from };
+    const now = Date.now();
+    const lead = (map) => {
+      const seen = map.get(id);
+      return seen == null || now - seen < 200 ? null : Math.round((now - seen) / 100) / 10; // < 0.2 s: only as it came up
+    };
+    const network = lead(firstSeenInSequence);
+    const dom = lead(firstSeenInQueue);
+    // Nothing received yet (e.g. the first Short on a fresh page): can't judge.
+    const queued = firstSeenInSequence.size === 0 ? 'unknown' : network != null ? 'yes' : 'no';
+    const queuedDom = !watchingSince || now - watchingSince < 1000 ? 'unknown' : dom != null ? 'yes' : 'no';
+    return { queued, lead: network, queuedDom };
+  }
+
+  // Records every Short now in the queue (first sighting only), and forgets
+  // old sightings.
+  function noteQueue() {
+    const now = Date.now();
+    for (const id of readShortsQueue()) if (id && !firstSeenInQueue.has(id)) firstSeenInQueue.set(id, now);
+    for (const [id, at] of firstSeenInQueue) if (now - at > FORGET_AFTER_MS) firstSeenInQueue.delete(id);
+  }
+
+  function watchQueue() {
+    if (queuePoll) return;
+    watchingSince = Date.now();
+    noteQueue();
+    queuePoll = setInterval(noteQueue, QUEUE_POLL_MS);
+    const container = document.querySelector(SELECTORS.shortsQueueSlot)?.parentElement;
+    if (container) {
+      queueObserver = new MutationObserver(noteQueue);
+      queueObserver.observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
+    }
+  }
+
+  function stopWatchingQueue() {
+    clearInterval(queuePoll);
+    queuePoll = 0;
+    queueObserver?.disconnect();
+    queueObserver = null;
+    watchingSince = 0;
   }
 
   // Records a Short for the labelled test set (this device only, first sight kept).

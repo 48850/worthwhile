@@ -108,23 +108,21 @@ const copyStatus = document.getElementById('copy-status');
 loadSettings().then((s) => (collectBox.checked = s.collectShorts));
 collectBox.addEventListener('change', () => chrome.storage.sync.set({ collectShorts: collectBox.checked })); // saves straight away
 
-// "Collected 42 Shorts. The queue listed 40 of 41 in advance (98%), most often 1 slot ahead."
+// "Collected 42 Shorts. The queue listed 40 of 41 in advance (98%), typically 12 s before they played."
+// Rows from the older check (slots, not seconds) have no lead time and are left out.
+// Only rows from the network-list check count ('queuedDom' marks them).
 function showCollected(list) {
-  const checked = list.filter((s) => s.queued !== 'unknown');
+  const checked = list.filter((s) => s.queued !== 'unknown' && 'queuedDom' in s);
   const queued = checked.filter((s) => s.queued === 'yes');
-  const aheads = queued.map((s) => s.ahead).filter((a) => a != null);
-  const common = aheads.length ? mode(aheads) : null;
+  const leads = queued.map((s) => s.lead).filter((l) => l != null).sort((a, b) => a - b);
+  const median = leads.length ? leads[Math.floor(leads.length / 2)] : null;
+  const shortest = leads.length ? leads[0] : null;
   collectStatus.textContent =
     `Collected ${list.length} Short${list.length === 1 ? '' : 's'}.` +
     (checked.length
       ? ` The queue listed ${queued.length} of ${checked.length} in advance (${Math.round((100 * queued.length) / checked.length)}%)` +
-        (common != null ? `, most often ${common} slot${common === 1 ? '' : 's'} ahead.` : '.')
+        (median != null ? `, typically ${median} s before they played (shortest ${shortest} s).` : '.')
       : '');
-}
-function mode(values) {
-  const counts = new Map();
-  values.forEach((v) => counts.set(v, (counts.get(v) || 0) + 1));
-  return [...counts].sort((a, b) => b[1] - a[1])[0][0];
 }
 loadLocal().then(({ collectedShorts }) => showCollected(collectedShorts));
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -137,7 +135,7 @@ document.getElementById('copy-shorts').addEventListener('click', async () => {
   const { collectedShorts } = await loadLocal();
   const quote = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = collectedShorts.map((s) =>
-    [s.id, s.title, s.channel, '', s.queued === 'yes' ? `queued ${s.ahead ?? '?'} ahead` : s.queued === 'no' ? 'not queued' : 'unknown']
+    [s.id, s.title, s.channel, '', s.queued === 'yes' ? (s.lead != null ? `queued ${s.lead}s ahead` : `queued ${s.ahead ?? '?'} ahead`) : s.queued === 'no' ? 'not queued' : 'unknown']
       .map(quote)
       .join(','),
   );
