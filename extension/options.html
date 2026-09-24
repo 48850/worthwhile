@@ -67,6 +67,24 @@
       </form>
 
       <section>
+        <h2>Collect Shorts (testing)</h2>
+        <p class="hint">
+          While this is on, every Short you swipe to is recorded on this device (ID, title, channel), with a check of
+          whether YouTube had already queued it. Copy them as CSV, then fill in my_verdict (show or hide).
+        </p>
+        <label class="check">
+          <input id="collect-shorts" type="checkbox" />
+          Collect Shorts as I swipe
+        </label>
+        <p id="collect-status" class="hint"></p>
+        <div class="row">
+          <button type="button" id="copy-shorts" class="primary">Copy as CSV</button>
+          <span id="copy-status" class="hint" role="status"></span>
+          <button type="button" id="clear-shorts" class="link">Clear the list</button>
+        </div>
+      </section>
+
+      <section>
         <h2>Hidden channels</h2>
         <p class="hint">Channels you hid with "Hide channel". Their videos are hidden without being scored. Changes apply straight away.</p>
         <ul id="hidden-channels" class="channel-list"></ul>

@@ -317,6 +317,37 @@ and auto-advance if it fails.
   - Fail-open: unscored = shown, errors = shown. If no card can be read for
     10 s, or the script throws, the filter switches itself off for the page.
 
+  Shorts, the core of the product (plan changed 2026-09-25; the user decided
+  NOT to limit Shorts but to filter them properly). Auto-skip failed because
+  it skipped after the Short had started, and titles alone are too thin.
+  Phase 1 (test first, like M1):
+  - Upcoming Shorts are readable before they play (checked live, signed
+    out):
+    - #shorts-inner-container holds numbered slots
+      .reel-video-in-sequence-new#0..N (13-17 seen). Slot 0 is playing, the
+      rest come next in order. Each slot has a thumbnail whose URL holds
+      the video ID (readShortsQueue in selectors.js).
+    - The source is YouTube's reel_watch_sequence request, whose entries
+      list the next Shorts in order.
+    - One real swipe matched the prediction; my test browser couldn't
+      swipe more.
+  - "Collect Shorts" (options page, off by default) records every Short
+    swiped to (id, title, channel) in chrome.storage.local collectedShorts
+    (max 500). It also checks against the queue snapshot taken 1.5 s into
+    the previous Short: queued yes/no and how many slots ahead. The options
+    page summarises "listed N of M in advance" and copies CSV:
+    video_id, title, channel, my_verdict, queue_check.
+  - Still to build: scoring Shorts with a ~320px thumbnail (Haiku image
+    input) plus title, hashtags, channel and description (videos.list);
+    score-test.js Shorts mode by video ID. Target 85% on a holdout of the
+    user's ~90 labelled Shorts (a third bait), split like M1.
+  Phase 2 only if Phase 1 passes: pre-score the queue and skip bait before
+  it's shown. The choice is between skipping on arrival (player hidden and
+  muted; may leak a frame) and filtering reel_watch_sequence at the source
+  (cleanest, but it intercepts YouTube's own data: more fragile, and
+  further from the spirit of YouTube's terms). Label mode stays as an
+  option.
+
 M4 — Behaviour layer.
 - Fatigue detection: session over 25 minutes, or 5+ Shorts skipped within
   3 seconds each → overlay offering to switch the filter on.

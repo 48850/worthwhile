@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS = {
   shortsLabels: false, // label bait Shorts (never skips); off by default
   hideShortsShelf: true, // hide the Shorts shelf on the home page: titles too thin to score, mostly slop
   hiddenChannels: [], // channel names hidden outright by "Hide channel", no model involved
+  collectShorts: false, // record Shorts as the user swipes, to build a labelled test set
 };
 
 const MAX_HIDDEN_CHANNELS = 200;
@@ -51,7 +52,9 @@ function loadSettings() {
 //     first. [{ videoId, title, channel, scores, verdict: 'show'|'hide', at }]
 //     The 10 newest go to the scoring prompt as labelled examples.
 //   worthOpen: whether the "Worth your time" row is expanded.
-const LOCAL_DEFAULTS = { openedChannels: [], notInterested: [], corrections: [], worthOpen: true };
+//   collectedShorts: Shorts recorded by "Collect Shorts" for the labelled
+//     test set. [{ id, title, channel, queued: 'yes'|'no'|'unknown', ahead, at }]
+const LOCAL_DEFAULTS = { openedChannels: [], notInterested: [], corrections: [], worthOpen: true, collectedShorts: [] };
 const MAX_OPENED_CHANNELS = 20;
 const MAX_NOT_INTERESTED = 1000;
 const MAX_CORRECTIONS = 20;

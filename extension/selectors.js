@@ -123,6 +123,15 @@ const SELECTORS = {
   shortsChannel: 'ytd-shorts yt-reel-channel-bar-view-model a[href^="/@"]',
   shortsPlayer: 'ytd-shorts ytd-reel-video-renderer', // the "Worthwhile: bait" label is placed over this
 
+  // The queue of upcoming Shorts (checked live 2026-09-25, signed out): the
+  // player sits in numbered slots div#0..#16; slot N holds the Nth Short
+  // with a thumbnail whose URL contains its video ID. Slot 0 was playing,
+  // slots 1-16 were next, in order; one swipe confirmed it (Collect Shorts
+  // checks this at scale). The queue comes from YouTube's reel_watch_sequence
+  // request.
+  shortsQueueSlot: '#shorts-inner-container > .reel-video-in-sequence-new',
+  shortsQueueThumb: '.reel-video-in-sequence-thumbnail',
+
   // A card's ⋮ menu button, and the items of the menu it opens. Each item
   // wraps a button[role="menuitem"]. These go by YouTube's English labels.
   cardMenuButton: 'button[aria-label="More actions"], button[aria-label="Action menu"]',
@@ -198,6 +207,14 @@ function readWatchChannel() {
     if (handle) return { handle, name };
   }
   return null;
+}
+
+// The Shorts queue, in slot order: [videoId or null, ...].
+function readShortsQueue() {
+  return [...document.querySelectorAll(SELECTORS.shortsQueueSlot)].map((slot) => {
+    const style = slot.querySelector(SELECTORS.shortsQueueThumb)?.getAttribute('style') || '';
+    return /\/vi(?:_webp)?\/([\w-]{11})\//.exec(style)?.[1] || null;
+  });
 }
 
 // Cards inside root, in page order. A wrapper and the card inside it both
