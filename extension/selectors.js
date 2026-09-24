@@ -20,6 +20,11 @@ const SELECTORS = {
   gridItems: 'ytd-rich-grid-renderer > #contents',
   continuation: 'ytd-continuation-item-renderer',
 
+  // A card slot in the home grid (direct child of gridItems). In-place
+  // filtering marks and hides these. Shelves (ytd-rich-section-renderer) and
+  // the spinner are other children, and are left alone.
+  gridCard: 'ytd-rich-item-renderer',
+
   // One video card. ytd-rich-item-renderer is the home grid's wrapper; inside
   // it YouTube renders the newer yt-lockup-view-model or the older
   // ytd-rich-grid-media (both seen live Sept 2026).
@@ -118,30 +123,37 @@ const SELECTORS = {
   notInterestedLabel: /^not interested$/i,
 };
 
-// CSS that hides YouTube's own home-feed cards while the filter is on
+// CSS for filtering YouTube's own home grid in place while the filter is on
 // (html.ww-on). It's built here so that no YouTube selector lives anywhere
-// else; content.js injects it. YouTube's "load more" spinner stays in place
-// but invisible, right under our grid, so scrolling to the end of our grid
-// still makes YouTube load the next page. html.ww-hold removes the spinner
-// entirely, which pauses loading (used while a batch is being scored).
+// else; content.js injects it and marks each card with data-ww:
+//   (no mark) not seen yet   -> invisible, keeping its slot (so bait never flashes)
+//   "show"                   -> visible, as YouTube placed it
+//   "hide"                   -> removed; later cards move up into its slot
+// content.js marks every card "show" after at most 1.5 s, scored or not.
+// Every card gets the same margins (0 left, one gap right): YouTube sets
+// margins by a card's original column, which goes wrong once cards move.
+// Checked live: identical layout with nothing hidden, aligned when hiding.
 //
-// Also here: the /watch sidebar rules (cards marked data-ww-verdict by
-// watch.js), and [data-ww-marking], which briefly gives a hidden home card
-// a real size, off screen, while its ⋮ menu is used (notinterested.js).
+// Also here: the "Wrong call" button's hover reveal, the /watch sidebar rules
+// (cards marked data-ww-verdict by watch.js), and [data-ww-marking], which
+// briefly gives a hidden card a real size, off screen, while its ⋮ menu is
+// used (notinterested.js).
 function feedHidingCss() {
   const items = `${SELECTORS.homeFeed} ${SELECTORS.gridItems}`;
+  const card = `html.ww-on ${items} > ${SELECTORS.gridCard}`;
   return [
-    `html.ww-on ${items} > :not(${SELECTORS.continuation}) { display: none !important; }`,
-    `html.ww-on ${items} > ${SELECTORS.continuation} { visibility: hidden !important; }`,
-    `html.ww-on.ww-hold ${items} > ${SELECTORS.continuation} { display: none !important; }`,
-    `html.ww-on ${items} > [data-ww-marking] { display: block !important; position: fixed !important; left: -10000px !important; top: 0 !important; width: 360px !important; }`,
+    `${card} { margin-left: 0 !important; margin-right: var(${SELECTORS.cssVars.columnGap[0]}, 16px) !important; position: relative; }`,
+    `${card}:not([data-ww]) { visibility: hidden !important; }`,
+    `${card}[data-ww="hide"] { display: none !important; }`,
+    `${card}[data-ww][data-ww-marking] { display: block !important; visibility: visible !important; position: fixed !important; left: -10000px !important; top: 0 !important; width: 360px !important; }`,
+    `${card}:hover > .ww-wrong, ${card} > .ww-wrong:focus-visible { opacity: 1; pointer-events: auto; }`,
     `html.ww-on ${SELECTORS.sidebar} [data-ww-verdict="hide"] { display: none !important; }`,
     `html.ww-on ${SELECTORS.sidebar} [data-ww-verdict="pending"] { opacity: 0.35; }`,
     ...themeCss(),
   ].join('\n');
 }
 
-// Our grid's --ww-* variables, read from YouTube's own (see cssVars), so it
+// Our UI's --ww-* variables, read from YouTube's own (see cssVars), so it
 // matches YouTube's colours, column count and spacing. styles.css uses only
 // the --ww-* names.
 function themeCss() {

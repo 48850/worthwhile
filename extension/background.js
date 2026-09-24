@@ -36,12 +36,15 @@ async function sourceItems() {
 }
 
 async function post(path, body, timeoutMs) {
-  const s = await loadSettings();
+  const [s, { corrections }] = await Promise.all([loadSettings(), loadLocal()]);
   if (!s.token) return { error: 'no-token' };
+  // The user's newest corrections go along as labelled examples. They're
+  // part of the prompt, so a new correction re-scores (new cache key).
+  const profile = { rubric: s.rubric, interests: s.interests, rule: s.rule, strictness: s.strictness, examples: correctionExamples(corrections) };
   const response = await fetch(`${WORKER_URL}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${s.token}` },
-    body: JSON.stringify({ profile: { rubric: s.rubric, interests: s.interests, strictness: s.strictness }, ...body }),
+    body: JSON.stringify({ profile, ...body }),
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (response.status === 401) return { error: 'bad-token' };

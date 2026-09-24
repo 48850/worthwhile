@@ -4,79 +4,90 @@
 // app, so this one script lives across in-app navigation (yt-navigate-finish).
 // (watch.js handles the /watch sidebar, shorts.js handles /shorts.)
 //
-// On the home page, while the filter is on:
-//   1. YouTube's own feed cards are hidden (CSS from selectors.js, html.ww-on).
-//   2. Each card YouTube loads is read (selectors.js) and sent in batches to
-//      background.js, which asks the Worker for show/hide verdicts.
-//   3. Our own grid (#ww-feed) shows the approved videos in feed order, mixed
-//      with approved "Sourced" videos (from your interests and from channels
-//      you've opened), so the grid is never thin.
-//   4. A "Hidden (N)" drawer under the grid lists what was hidden. Its button
-//      tells YouTube "Not interested" about up to 10 of them, only when clicked.
-// YouTube's "load more" spinner stays (invisible) just under our grid, so
-// scrolling to the end of our grid makes YouTube load the next page.
-// While a batch is being scored, html.ww-hold pauses that loading.
+// Worthwhile SUBTRACTS from YouTube's own home grid; it never replaces it.
+// While the filter is on:
+//   1. Each card stays invisible (keeping its slot) until it's scored, so
+//      bait never flashes. After 1.5 s it's shown anyway, scored or not.
+//   2. Bait is removed from the grid; everything else stays exactly where
+//      YouTube put it (the CSS in selectors.js keeps the columns aligned).
+//   3. A verdict that arrives after a card is already showing only removes
+//      it if it's below the screen, so nothing vanishes under your eyes.
+//      Otherwise it's "left in place" and listed in the drawer.
+//   4. A small bar above the grid holds the "Hidden (N)" drawer (with "Show
+//      it anyway" and "Tell YouTube: not interested") and a collapsible
+//      "Worth your time" row of up to 6 sourced videos.
+//   5. Hovering a visible card shows "Wrong call", which hides it.
+// Both corrections are remembered on this device and sent with future
+// scoring as labelled examples (see settings.js).
 //
-// Failure rule: never blank the feed. A scoring error means "show". If no
-// card can be read at all, YouTube's own feed is put back.
+// Failure rule: never worse than plain YouTube. Unscored means shown; a
+// scoring error means shown; if no card can be read, or the script hits an
+// error, the filter switches itself off for the page.
 
 (() => {
-  const BATCH_MAX = 40; // cards per request (the Worker accepts up to 60)
-  const SCAN_DELAY_MS = 250; // let YouTube finish adding cards before reading them
+  const FIRST_BATCH = 10; // the cards on screen first, in a small batch, for speed
+  const BATCH_MAX = 40; // after that, up to this many per request (the Worker accepts 60)
+  const MAX_PARALLEL = 3; // requests at once
+  const SCAN_DELAY_MS = 50; // cards stay invisible while waiting, so read them quickly
+  const REVEAL_AFTER_MS = 1500; // show a card after this long even if it isn't scored yet
   const RESCORE_DELAY_MS = 1200; // let the user finish editing settings before re-scoring
-  const FAIL_OPEN_MS = 10000; // no readable card this long after cards appear: give YouTube its feed back
-  const AUTO_LOAD_CARDS = 120; // per visit; after this, loading more needs a click (caps scoring cost)
-  const PLACEHOLDERS = 8; // grey tiles shown while the first batch is scored
-  const SOURCED_EVERY = 3; // one sourced tile after every 3 feed tiles
-  const MIN_TILES = 12; // if the feed has fewer approved videos, sourced ones fill up to this
+  const FAIL_OPEN_MS = 10000; // no readable card this long after cards appear: switch off
+  const WORTH_MAX = 6; // "Worth your time" row
   const RESOURCE_AFTER_MS = 10 * 60 * 1000; // ask for sourced videos again after 10 minutes
   const TELL_PER_CLICK = 10; // "Not interested": at most this many per click
   const TELL_PAUSE_MS = [1000, 3000]; // random pause between each, like a person
 
   let settings = { ...DEFAULT_SETTINGS };
-  let failedOpen = false; // selectors broke: leave YouTube's feed alone for this page session
+  let failedOpen = false;
 
-  const known = new Map(); // videoId -> { videoId, title, channel, duration, link }
-  const verdicts = new Map(); // videoId -> 'show' | 'hide'
-  const scoresOf = new Map(); // videoId -> { interest_match, substance, bait }, for the Hidden drawer
+  const known = new Map(); // videoId -> { videoId, title, channel, duration, meta, link }
+  const cardFor = new Map(); // videoId -> YouTube's card element
+  const idOnCard = new WeakMap(); // card element -> videoId it was marked for (YouTube reuses cards)
+  const firstSeen = new WeakMap(); // card element -> when it first appeared
+  const verdicts = new Map(); // videoId -> 'show' | 'hide', from scoring
+  const scoresOf = new Map(); // videoId -> { interest_match, substance, bait }
+  const overrides = new Map(); // videoId -> 'show' | 'hide', from the user's corrections
   const failed = new Set(); // videoIds whose scoring failed (shown; retried later)
-  const queue = new Set(); // videoIds waiting to be sent
-  const inFlight = new Set(); // videoIds in the request being scored right now
-  const tiles = new Map(); // tile key -> our tile element
-  let feedOrder = []; // videoIds currently in YouTube's feed, in order
+  const leftInPlace = new Set(); // bait scored after it was already on screen
+  const queue = new Set();
+  const inFlight = new Set();
+  let feedOrder = []; // videoIds currently in YouTube's grid, in order
 
-  let sourced = []; // approved videos from sourcing: [{ id, title, channel, channelId, duration, source }]
+  let sourced = [];
   let sourcing = false;
   let sourcedAt = 0;
   let sourcedGeneration = -1;
+  let worthOpen = true;
 
-  let told = new Set(); // videoIds already marked "Not interested" (from chrome.storage.local)
-  const tellFailed = new Map(); // videoId -> reason, this page session
+  let told = new Set(); // videoIds already marked "Not interested"
+  const tellFailed = new Map();
   let telling = false;
   let stopTelling = false;
   let tellStatus = '';
 
-  let generation = 0; // bumped when settings change, so replies for old settings are ignored
-  let sending = false;
-  let rescoring = false;
+  let generation = 0; // bumped when settings change; replies for old settings are ignored
+  let forceGeneration = -1; // replies for this generation may hide on-screen cards (the user changed settings)
+  let sending = 0; // requests in flight
   let errorText = '';
-  let loadLimit = AUTO_LOAD_CARDS;
+  let drawerOpen = false;
 
   let observer = null;
   let observedEl = null;
   let scanTimer = 0;
+  let revealTimer = 0;
   let rescoreTimer = 0;
   let failOpenTimer = 0;
   let ui = null;
-  let lastGridKey = '';
   let lastHiddenKey = '';
+  let lastWorthKey = '';
+  const tiles = new Map();
 
   // ---------------------------------------------------------------------------
   // Start-up and navigation
   // ---------------------------------------------------------------------------
 
   const style = document.createElement('style');
-  style.id = 'ww-hide-youtube-feed';
+  style.id = 'ww-youtube-css';
   style.textContent = feedHidingCss();
   document.documentElement.appendChild(style);
 
@@ -84,12 +95,14 @@
     safe(([stored, local]) => {
       settings = stored;
       told = new Set(local.notInterested);
-      updateRootClasses();
+      worthOpen = local.worthOpen;
+      setOverrides(local.corrections);
+      updateRootClass();
       onNavigate();
     }),
   );
   document.addEventListener('yt-navigate-finish', safe(onNavigate));
-  chrome.storage.onChanged.addListener(safe(onSettingsChanged));
+  chrome.storage.onChanged.addListener(safe(onStorageChanged));
 
   function isActive() {
     return wwIsActive(settings) && !failedOpen;
@@ -99,7 +112,7 @@
     return location.pathname === '/';
   }
 
-  function updateRootClasses() {
+  function updateRootClass() {
     document.documentElement.classList.toggle('ww-on', isActive());
   }
 
@@ -109,10 +122,8 @@
       stopTelling = true;
       return;
     }
-    // Coming back to the home page: retry anything that failed last time.
-    for (const id of failed) queue.add(id);
+    for (const id of failed) queue.add(id); // retry anything that failed last time
     failed.clear();
-    loadLimit = Math.max(loadLimit, feedOrder.length + AUTO_LOAD_CARDS);
     wwWaitFor(() => document.querySelector(`${SELECTORS.homeFeed} ${SELECTORS.gridItems}`), 15000).then(
       safe((itemsEl) => {
         if (itemsEl && isActive() && onHome()) startObserving(itemsEl);
@@ -126,6 +137,8 @@
     // subtree: YouTube adds a card element first and fills it in afterwards.
     observer = new MutationObserver(safe(scheduleScan));
     observer.observe(itemsEl, { childList: true, subtree: true });
+    clearInterval(revealTimer);
+    revealTimer = setInterval(safe(revealLate), 200);
     armFailOpen();
     scan();
   }
@@ -134,17 +147,23 @@
     if (observer) observer.disconnect();
     observer = null;
     observedEl = null;
+    clearInterval(revealTimer);
     clearTimeout(failOpenTimer);
-    setHold(false);
   }
 
   // ---------------------------------------------------------------------------
-  // Reading YouTube's cards
+  // Reading and marking YouTube's cards
   // ---------------------------------------------------------------------------
 
   function scheduleScan() {
-    clearTimeout(scanTimer);
-    scanTimer = setTimeout(safe(scan), SCAN_DELAY_MS);
+    if (scanTimer) return;
+    scanTimer = setTimeout(
+      safe(() => {
+        scanTimer = 0;
+        scan();
+      }),
+      SCAN_DELAY_MS,
+    );
   }
 
   function scan() {
@@ -157,34 +176,96 @@
     }
     ensureUi(itemsEl);
 
+    const now = Date.now();
     const order = [];
     const seen = new Set();
-    for (const card of findCards(itemsEl)) {
+    for (const card of itemsEl.querySelectorAll(`:scope > ${SELECTORS.gridCard}`)) {
       const item = readCard(card);
-      if (!item || !item.title || seen.has(item.videoId)) continue; // not a video, not filled in yet, or a repeat
-      const id = item.videoId;
+      const id = item?.videoId;
+      // After "Not interested", YouTube swaps the card for its own "Video
+      // removed" notice. The video was hidden, so keep the notice hidden too.
+      if (!item && told.has(idOnCard.get(card))) {
+        mark(card, 'hide');
+        continue;
+      }
+      // YouTube reuses card elements: if this one now holds a different
+      // video, forget how it was marked and start again.
+      if (idOnCard.has(card) && idOnCard.get(card) !== id) {
+        card.removeAttribute('data-ww');
+        firstSeen.delete(card);
+      }
+      if (!firstSeen.has(card)) firstSeen.set(card, now);
+      if (!item) {
+        mark(card, 'show'); // ads, mixes, playlists: not ours to judge
+        continue;
+      }
+      if (!item.title) continue; // still being filled in (revealLate covers it)
+      idOnCard.set(card, id);
+      if (seen.has(id)) continue;
       seen.add(id);
       order.push(id);
-      if (!known.has(id)) known.set(id, item);
-      else known.get(id).link = item.link; // keep the live link element for navigation and the ⋮ menu
-      if (!verdicts.has(id) && !failed.has(id) && !inFlight.has(id)) queue.add(id);
+      known.set(id, item);
+      cardFor.set(id, card);
+      addWrongCallButton(card, id);
+      apply(id);
+      if (!verdicts.has(id) && !failed.has(id) && !inFlight.has(id) && !overrides.has(id)) queue.add(id);
     }
     feedOrder = order;
     if (order.length) clearTimeout(failOpenTimer);
-
     render();
     sendNext();
   }
 
+  // Marks a card from the current verdict. `force`: the user asked for this
+  // (a correction or a settings change), so an on-screen card may be hidden.
+  function apply(id, force = false) {
+    const card = cardFor.get(id);
+    if (!card || !card.isConnected) return;
+    const verdict = overrides.get(id) || verdicts.get(id) || (failed.has(id) ? 'show' : null);
+    if (!verdict) return; // not scored yet: stays invisible until revealLate
+    if (verdict === 'show') {
+      leftInPlace.delete(id);
+      mark(card, 'show');
+      return;
+    }
+    // Bait. If it's already showing and could be in view (on screen or above
+    // it), hiding it would move things under the user's eyes: leave it.
+    if (!force && card.getAttribute('data-ww') === 'show' && card.getBoundingClientRect().top < innerHeight) {
+      leftInPlace.add(id);
+      return;
+    }
+    leftInPlace.delete(id);
+    mark(card, 'hide');
+  }
+
+  function mark(card, state) {
+    if (card.getAttribute('data-ww') !== state) card.setAttribute('data-ww', state);
+  }
+
+  // Cards unscored after REVEAL_AFTER_MS are shown anyway.
+  function revealLate() {
+    if (!observedEl) return;
+    const now = Date.now();
+    let changed = false;
+    for (const card of observedEl.querySelectorAll(`:scope > ${SELECTORS.gridCard}:not([data-ww])`)) {
+      if (!firstSeen.has(card)) firstSeen.set(card, now);
+      if (now - firstSeen.get(card) >= REVEAL_AFTER_MS) {
+        mark(card, 'show');
+        changed = true;
+      }
+    }
+    if (changed) render();
+  }
+
   // If YouTube shows cards but none can be read (selectors out of date),
-  // give the user YouTube's own feed back rather than a blank page.
+  // switch the filter off for this page rather than risk hiding anything.
   function armFailOpen() {
     clearTimeout(failOpenTimer);
     failOpenTimer = setTimeout(
       safe(() => {
-        const youtubeHasCards = observedEl && observedEl.querySelector(SELECTORS.card);
+        const youtubeHasCards = observedEl && observedEl.querySelector(SELECTORS.gridCard);
         if (feedOrder.length === 0 && youtubeHasCards) {
-          console.warn('Worthwhile: could not read any video cards, so showing YouTube\'s own feed. selectors.js may need updating.');
+          console.warn('Worthwhile: could not read any video cards, so leaving YouTube\'s feed alone. selectors.js may need updating.');
           failOpen();
         }
       }),
@@ -195,37 +276,46 @@
   function failOpen() {
     failedOpen = true;
     stopObserving();
-    updateRootClasses();
+    updateRootClass();
   }
 
   // ---------------------------------------------------------------------------
   // Scoring
   // ---------------------------------------------------------------------------
 
+  // Up to MAX_PARALLEL requests at once, so every card on a first screen gets
+  // its verdict at about the same time (one after another, the last batch
+  // came back well after the 1.5 s reveal).
   function sendNext() {
+    if (sending >= MAX_PARALLEL || !isActive()) return;
+    if (queue.size === 0) {
+      if (sending === 0) maybeSource();
+      return;
+    }
     sendBatch().catch(onUnexpectedError);
+    sendNext(); // fill the remaining parallel slots
   }
 
   async function sendBatch() {
-    if (sending || queue.size === 0 || !isActive()) {
-      updateHold();
-      if (!sending && queue.size === 0) maybeSource();
-      return;
-    }
-    sending = true;
-    updateHold();
+    sending++;
 
-    const ids = [...queue].slice(0, BATCH_MAX);
+    // Cards on screen (still invisible, waiting) go first, in a small batch.
+    const onScreen = (id) => {
+      const top = cardFor.get(id)?.getBoundingClientRect().top ?? Infinity;
+      return top < innerHeight;
+    };
+    const waiting = [...queue];
+    const visible = waiting.filter(onScreen);
+    const ids = visible.length ? visible.slice(0, FIRST_BATCH) : waiting.slice(0, BATCH_MAX);
     ids.forEach((id) => {
       queue.delete(id);
       inFlight.add(id);
     });
-    const items = ids.map((id) => {
+    const gen = generation;
+    const reply = await wwScore(ids.map((id) => {
       const { title, channel, duration } = known.get(id);
       return { id, title, channel, duration };
-    });
-    const gen = generation;
-    const reply = await wwScore(items);
+    }));
     ids.forEach((id) => inFlight.delete(id));
 
     if (gen === generation) {
@@ -237,16 +327,15 @@
           if (result.scores) scoresOf.set(id, result.scores);
           failed.delete(id);
         } else {
-          verdicts.delete(id); // any scoring error means "show", even if an older verdict said hide
-          failed.add(id); // retried on the next visit to the home page or settings change
+          verdicts.delete(id); // any scoring error means "show"
+          failed.add(id); // retried on the next visit or settings change
         }
+        apply(id, gen === forceGeneration);
       }
       errorText = results ? '' : describeError(reply && reply.error);
     }
-    // (If settings changed mid-request, these ids were already re-queued.)
 
-    sending = false;
-    if (queue.size === 0) rescoring = false;
+    sending--;
     render();
     sendNext();
   }
@@ -255,49 +344,48 @@
     if (code === 'no-token') return 'Add your invite token in Worthwhile settings.';
     if (code === 'bad-token') return 'Your invite token wasn\'t accepted. Check it in Worthwhile settings.';
     if (code === 'extension-reloaded') return 'Worthwhile was updated. Reload this page.';
-    return 'Couldn\'t reach the Worthwhile server.';
+    return 'Couldn\'t reach the Worthwhile server, so nothing is being filtered.';
   }
 
-  // Pause YouTube's loading while a batch is being scored, and once this
-  // visit has loaded its share of cards (the "Load more" button lifts it).
-  function updateHold() {
-    const busy = sending || queue.size > 0;
-    setHold(isActive() && onHome() && (busy || feedOrder.length >= loadLimit));
-  }
-
-  function setHold(on) {
-    document.documentElement.classList.toggle('ww-hold', on);
-  }
-
-  function onSettingsChanged(changes, area) {
+  function onStorageChanged(changes, area) {
     if (area === 'local') {
       if (changes.notInterested) told = new Set(changes.notInterested.newValue || []);
+      if (changes.corrections) {
+        setOverrides(changes.corrections.newValue || []);
+        for (const id of overrides.keys()) apply(id, true); // only the corrected videos move
+        scheduleRescore(false); // corrections are examples in the prompt: new scores
+      }
+      render();
       return;
     }
     if (area !== 'sync') return;
     for (const [key, change] of Object.entries(changes)) {
       if (key in DEFAULT_SETTINGS) settings[key] = change.newValue === undefined ? DEFAULT_SETTINGS[key] : change.newValue;
     }
-    updateRootClasses();
+    updateRootClass();
     if ('enabled' in changes) onNavigate();
-    if (['token', 'rubric', 'interests', 'strictness'].some((key) => key in changes)) scheduleRescore();
+    if (['token', 'rubric', 'interests', 'rule', 'strictness'].some((key) => key in changes)) scheduleRescore(true);
   }
 
-  // After a settings change, score every card again (and fetch sourced videos
-  // for the new interests). Old verdicts stay on screen, dimmed with
-  // "re-scoring…", until the new ones arrive.
-  function scheduleRescore() {
+  function setOverrides(corrections) {
+    overrides.clear();
+    for (const c of corrections) if (c.videoId) overrides.set(c.videoId, c.verdict);
+  }
+
+  // Score every card again. `force`: the user changed a setting, so the new
+  // verdicts apply to on-screen cards too. After a correction (not forced),
+  // on-screen cards are left alone.
+  function scheduleRescore(force) {
     generation++;
-    rescoring = verdicts.size > 0 || failed.size > 0;
     errorText = '';
-    render();
     clearTimeout(rescoreTimer);
     rescoreTimer = setTimeout(
       safe(() => {
         generation++; // ignore replies to requests sent before the edit finished
-        for (const id of feedOrder) queue.add(id);
+        if (force) forceGeneration = generation;
+        for (const id of feedOrder) if (!overrides.has(id)) queue.add(id);
         failed.clear();
-        if (queue.size === 0) rescoring = false;
+        sourcedGeneration = -1; // new settings: new sourced videos too
         if (isActive() && onHome()) onNavigate();
         render();
         sendNext();
@@ -307,28 +395,52 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Sourcing: extra approved videos from your interests and opened channels
+  // Corrections
   // ---------------------------------------------------------------------------
 
-  // Once the feed's first batches are scored, ask for sourced videos. Again
-  // after a settings change, or on a later visit once 10 minutes have passed.
+  // "Wrong call" on a visible card: hide it, and remember "should've hidden".
+  function addWrongCallButton(card, id) {
+    let button = card.querySelector(':scope > .ww-wrong');
+    if (!button) {
+      button = wwEl('button', { className: 'ww-wrong', text: 'Wrong call' });
+      button.type = 'button';
+      button.title = 'Worthwhile: this is bait. Hide it and learn from it.';
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        correct(button.dataset.videoId, 'hide');
+      });
+      card.appendChild(button);
+    }
+    button.dataset.videoId = id;
+  }
+
+  // "Show it anyway" (verdict 'show') or "Wrong call" (verdict 'hide').
+  function correct(id, verdict) {
+    const item = known.get(id);
+    if (!item) return;
+    overrides.set(id, verdict);
+    apply(id, true);
+    render();
+    rememberCorrection({ videoId: id, title: item.title, channel: item.channel, scores: scoresOf.get(id) || null, verdict }).catch(onUnexpectedError);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sourcing: "Worth your time"
+  // ---------------------------------------------------------------------------
+
   function maybeSource() {
     if (sourcing || !isActive() || !onHome() || feedOrder.length === 0) return;
     if (sourcedGeneration === generation && Date.now() - sourcedAt < RESOURCE_AFTER_MS) return;
     sourcing = true;
     const gen = generation;
-    render();
     wwSource()
       .then(
         safe((reply) => {
-          if (gen === generation && Array.isArray(reply?.items)) {
-            sourced = reply.items;
-            sourcedAt = Date.now();
-            sourcedGeneration = gen;
-          } else if (gen === generation) {
-            sourcedAt = Date.now(); // failed: keep what we had, try again later
-            sourcedGeneration = gen;
-          }
+          if (gen !== generation) return;
+          if (Array.isArray(reply?.items)) sourced = reply.items;
+          sourcedAt = Date.now();
+          sourcedGeneration = gen;
         }),
       )
       .finally(() => {
@@ -338,40 +450,31 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Our grid
+  // Our bar above the grid
   // ---------------------------------------------------------------------------
 
   function ensureUi(itemsEl) {
     if (!ui) ui = buildUi();
-    // Sit just above YouTube's (hidden) cards, below its topic chips.
     if (ui.root.nextElementSibling !== itemsEl) itemsEl.parentElement.insertBefore(ui.root, itemsEl);
   }
 
   function buildUi() {
     const root = wwEl('div', { id: 'ww-feed' });
+
     const bar = wwEl('div', { className: 'ww-bar' });
     const status = wwEl('span', { className: 'ww-status' });
-    bar.append(wwEl('span', { className: 'ww-brand', text: 'Worthwhile' }), status);
+    const toggle = wwEl('button', { className: 'ww-drawer-toggle' });
+    toggle.type = 'button';
+    toggle.addEventListener('click', () => {
+      drawerOpen = !drawerOpen;
+      render();
+    });
+    bar.append(wwEl('span', { className: 'ww-brand', text: 'Worthwhile' }), status, toggle);
+
     const notice = wwEl('div', { className: 'ww-notice' });
-    const grid = wwEl('div', { className: 'ww-grid' });
-    const empty = wwEl('div', { className: 'ww-empty' });
-    const more = wwEl('button', { className: 'ww-more', text: 'Load more' });
-    more.type = 'button';
-    more.addEventListener(
-      'click',
-      safe(() => {
-        loadLimit = feedOrder.length + 60;
-        updateHold();
-        render();
-        // Nudge the page so YouTube notices its spinner is back in view.
-        window.scrollBy(0, 1);
-        window.scrollBy(0, -1);
-      }),
-    );
 
     // The Hidden drawer
-    const drawer = wwEl('details', { className: 'ww-hidden' });
-    const summary = wwEl('summary');
+    const drawer = wwEl('div', { className: 'ww-drawer' });
     const tell = wwEl('button', { className: 'ww-tell' });
     tell.type = 'button';
     tell.addEventListener('click', safe(onTellClicked));
@@ -381,151 +484,46 @@
     // Testers should know this before they click it.
     const tellWarning = wwEl('div', { className: 'ww-tell-warning', text: 'This acts on your YouTube account.' });
     const list = wwEl('ol', { className: 'ww-hidden-list' });
-    drawer.append(summary, tellRow, tellWarning, list);
+    const lateNote = wwEl('div', { className: 'ww-late' });
+    drawer.append(tellRow, tellWarning, list, lateNote);
 
-    root.append(bar, notice, grid, empty, more, drawer);
-    return { root, status, notice, grid, empty, more, drawer, summary, tell, tellNote, list };
+    // "Worth your time"
+    const worth = wwEl('details', { className: 'ww-worth' });
+    worth.open = worthOpen;
+    worth.append(wwEl('summary', { text: 'Worth your time' }));
+    const worthGrid = wwEl('div', { className: 'ww-worth-grid' });
+    worth.append(worthGrid);
+    worth.addEventListener('toggle', () => {
+      worthOpen = worth.open;
+      chrome.storage.local.set({ worthOpen }).catch(() => {});
+    });
+
+    root.append(bar, notice, drawer, worth);
+    return { root, status, toggle, notice, drawer, tell, tellNote, list, lateNote, worth, worthGrid };
   }
 
   function render() {
     if (!ui) return;
-    const shown = [];
-    const hidden = [];
-    let pending = 0;
-    for (const id of feedOrder) {
-      const verdict = verdicts.get(id) || (failed.has(id) ? 'show' : null);
-      if (verdict === 'show') shown.push(id);
-      else if (verdict === 'hide') hidden.push(id);
-      else pending++;
-    }
-    const scoring = pending > 0 || sending;
+    const hidden = feedOrder.filter((id) => cardFor.get(id)?.getAttribute('data-ww') === 'hide');
+    const pending = feedOrder.filter((id) => !verdicts.has(id) && !failed.has(id) && !overrides.has(id)).length;
 
-    // Mix sourced videos in: one after every few feed videos, and enough to
-    // reach MIN_TILES when the feed itself has few approved videos.
-    const inFeed = new Set(feedOrder);
-    const extra = sourced.filter((s) => !inFeed.has(s.id) && !told.has(s.id));
-    const order = []; // tile keys: "f:<id>" feed, "s:<id>" sourced
-    let next = 0;
-    shown.forEach((id, i) => {
-      order.push(`f:${id}`);
-      if ((i + 1) % SOURCED_EVERY === 0 && next < extra.length) order.push(`s:${extra[next++].id}`);
-    });
-    if (!scoring) while (order.length < MIN_TILES && next < extra.length) order.push(`s:${extra[next++].id}`);
-    const sourcedShown = order.filter((key) => key.startsWith('s:')).length;
-
-    // Status line
-    const parts = [`${shown.length} shown`, `${hidden.length} hidden`];
-    if (sourcedShown) parts.push(`${sourcedShown} sourced`);
-    if (rescoring) parts.push('re-scoring…');
-    else if (scoring) parts.push(pending ? `scoring ${pending}…` : 'scoring…');
-    else if (sourcing) parts.push('finding more…');
+    const parts = [`${hidden.length} hidden`];
+    if (pending || sending) parts.push('scoring…');
     ui.status.textContent = parts.join(' · ');
-    ui.root.classList.toggle('ww-busy', scoring || rescoring || sourcing);
-    ui.root.classList.toggle('ww-rescoring', rescoring);
+    ui.root.classList.toggle('ww-busy', pending > 0 || sending);
+    ui.toggle.textContent = drawerOpen ? 'Hide list' : `Hidden (${hidden.length})`;
+    ui.toggle.setAttribute('aria-expanded', String(drawerOpen));
+    ui.toggle.hidden = hidden.length === 0 && leftInPlace.size === 0 && !drawerOpen;
 
-    ui.notice.textContent = errorText ? `Showing everything: ${errorText}` : '';
+    ui.notice.textContent = errorText;
     ui.notice.hidden = !errorText;
 
-    // Tiles (reused between renders so thumbnails don't reload). While the
-    // first batch is scored, grey placeholders stand in.
-    const placeholders = order.length === 0 && scoring ? PLACEHOLDERS : 0;
-    const gridKey = order.join(',') + '|' + placeholders;
-    if (gridKey !== lastGridKey) {
-      const extraById = new Map(extra.map((s) => [s.id, s]));
-      const children = order.map((key) => (key.startsWith('f:') ? feedTile(key.slice(2)) : sourcedTile(extraById.get(key.slice(2)))));
-      for (let i = 0; i < placeholders; i++) children.push(wwEl('div', { className: 'ww-tile ww-placeholder' }));
-      ui.grid.replaceChildren(...children);
-      lastGridKey = gridKey;
-    }
-    shown.forEach(showScoresOnHover); // scores can change after a re-score
-
-    const nothingPassed = feedOrder.length > 0 && order.length === 0 && !scoring && !sourcing;
-    ui.empty.textContent = nothingPassed ? 'Nothing loaded so far passed your filter. Scroll down or load more.' : '';
-    ui.empty.hidden = !nothingPassed;
-    ui.more.hidden = !(feedOrder.length >= loadLimit && !scoring);
-
-    renderHidden(hidden);
+    ui.drawer.hidden = !drawerOpen;
+    if (drawerOpen) renderDrawer(hidden);
+    renderWorth();
   }
 
-  function feedTile(videoId) {
-    const key = `f:${videoId}`;
-    if (tiles.has(key)) return tiles.get(key);
-    const { title, channel, duration, meta } = known.get(videoId);
-    const tile = makeTile(videoId, title, channel, duration, meta);
-    // Plain click: use YouTube's own link so navigation stays in-app (no
-    // page reload). Ctrl/middle-click etc. fall through to the normal href.
-    // Either way, note the video so watch.js can record its channel.
-    tile.addEventListener('click', (event) => {
-      wwOpened.pending = { videoId, channel, at: Date.now() };
-      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-      const link = known.get(videoId)?.link;
-      if (link && link.isConnected) {
-        event.preventDefault();
-        link.click();
-      }
-    });
-    tiles.set(key, tile);
-    return tile;
-  }
-
-  function sourcedTile(item) {
-    const key = `s:${item.id}`;
-    if (tiles.has(key)) return tiles.get(key);
-    const meta = [wwViews(item.views), wwAgo(item.publishedAt)].filter(Boolean).join(' • ');
-    const tile = makeTile(item.id, item.title, item.channel, item.duration, meta);
-    tile.classList.add('ww-sourced');
-    const from = item.source.startsWith('interest:') ? `your interest "${item.source.slice(9)}"` : 'a channel you\'ve opened';
-    tile.title = `${item.title}\nFound by Worthwhile from ${from}`;
-    tile.querySelector('.ww-thumb').append(wwEl('span', { className: 'ww-sourced-label', text: 'Sourced' }));
-    // Not in YouTube's feed, so no in-app link: a normal page load. Record the
-    // channel first (we already know its ID) so the page change can't cut it off.
-    tile.addEventListener('click', (event) => {
-      const remembered = rememberChannel({ id: item.channelId, name: item.channel });
-      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-      event.preventDefault();
-      remembered.finally(() => location.assign(tile.href));
-    });
-    tiles.set(key, tile);
-    return tile;
-  }
-
-  // Laid out like YouTube's own card: thumbnail, two-line title, channel,
-  // then "views • age".
-  function makeTile(videoId, title, channel, duration, meta) {
-    const tile = wwEl('a', { className: 'ww-tile' });
-    tile.href = `/watch?v=${videoId}`;
-    tile.title = title;
-    const thumb = wwEl('div', { className: 'ww-thumb' });
-    const img = wwEl('img');
-    img.src = `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
-    img.alt = '';
-    img.loading = 'lazy';
-    thumb.append(img);
-    if (duration) thumb.append(wwEl('span', { className: 'ww-duration', text: duration }));
-    tile.append(
-      thumb,
-      wwEl('div', { className: 'ww-title', text: title }),
-      wwEl('div', { className: 'ww-channel', text: channel }),
-      wwEl('div', { className: 'ww-meta', text: meta || '' }),
-    );
-    return tile;
-  }
-
-  // Hovering a feed tile shows its scores, to check why it was shown.
-  function showScoresOnHover(videoId) {
-    const tile = tiles.get(`f:${videoId}`);
-    const s = scoresOf.get(videoId);
-    if (tile && s) tile.title = `${known.get(videoId).title}\nWorthwhile: interest ${s.interest_match} · substance ${s.substance} · bait ${s.bait}`;
-  }
-
-  // ---------------------------------------------------------------------------
-  // The Hidden drawer and "Tell YouTube: not interested"
-  // ---------------------------------------------------------------------------
-
-  function renderHidden(hidden) {
-    ui.summary.textContent = `Hidden (${hidden.length})`;
-    ui.drawer.hidden = hidden.length === 0 && !telling;
-
+  function renderDrawer(hidden) {
     const waiting = hidden.filter((id) => !told.has(id) && !tellFailed.has(id)).length;
     ui.tell.textContent = telling ? 'Stop' : 'Tell YouTube: not interested';
     ui.tell.disabled = !telling && waiting === 0;
@@ -533,23 +531,80 @@
     ui.tellNote.textContent = tellStatus;
 
     const key = hidden.map((id) => `${id}:${told.has(id) ? 1 : 0}:${tellFailed.get(id) || ''}`).join(',');
-    if (key === lastHiddenKey) return;
-    lastHiddenKey = key;
-    ui.list.replaceChildren(
-      ...hidden.map((id) => {
-        const { title, channel } = known.get(id);
-        const row = wwEl('li');
-        const link = wwEl('a', { text: title });
-        link.href = `/watch?v=${id}`;
-        const s = scoresOf.get(id);
-        const why = s ? `interest ${s.interest_match} · substance ${s.substance} · bait ${s.bait}` : '';
-        row.append(link, wwEl('span', { className: 'ww-hidden-meta', text: [channel, why].filter(Boolean).join(' · ') }));
-        if (told.has(id)) row.append(wwEl('span', { className: 'ww-told', text: '✓ told YouTube' }));
-        else if (tellFailed.has(id)) row.append(wwEl('span', { className: 'ww-told ww-told-failed', text: 'couldn\'t mark' }));
-        return row;
-      }),
-    );
+    if (key !== lastHiddenKey) {
+      lastHiddenKey = key;
+      ui.list.replaceChildren(
+        ...hidden.map((id) => {
+          const { title, channel } = known.get(id);
+          const row = wwEl('li');
+          const link = wwEl('a', { text: title });
+          link.href = `/watch?v=${id}`;
+          const s = scoresOf.get(id);
+          const why = overrides.get(id) === 'hide' ? 'you marked it' : s ? `bait ${s.bait} · interest ${s.interest_match} · substance ${s.substance}` : '';
+          row.append(link, wwEl('span', { className: 'ww-hidden-meta', text: [channel, why].filter(Boolean).join(' · ') }));
+          const show = wwEl('button', { className: 'ww-show-anyway', text: 'Show it anyway' });
+          show.type = 'button';
+          show.addEventListener('click', safe(() => correct(id, 'show')));
+          row.append(show);
+          if (told.has(id)) row.append(wwEl('span', { className: 'ww-told', text: '✓ told YouTube' }));
+          else if (tellFailed.has(id)) row.append(wwEl('span', { className: 'ww-told ww-told-failed', text: 'couldn\'t mark' }));
+          return row;
+        }),
+      );
+    }
+    const late = [...leftInPlace].filter((id) => feedOrder.includes(id));
+    ui.lateNote.textContent = late.length
+      ? `${late.length} more scored as bait after it was already on screen, so it was left in place: ${late.map((id) => known.get(id).title).join('; ')}`
+      : '';
+    ui.lateNote.hidden = late.length === 0;
   }
+
+  function renderWorth() {
+    const inFeed = new Set(feedOrder);
+    const picks = sourced.filter((s) => !inFeed.has(s.id) && !told.has(s.id)).slice(0, WORTH_MAX);
+    ui.worth.hidden = picks.length === 0;
+    const key = picks.map((s) => s.id).join(',');
+    if (key === lastWorthKey) return;
+    lastWorthKey = key;
+    ui.worthGrid.replaceChildren(...picks.map(worthTile));
+  }
+
+  // Laid out like YouTube's own card: thumbnail, two-line title, channel,
+  // then "views • age". A normal link (these aren't in YouTube's feed).
+  function worthTile(item) {
+    if (tiles.has(item.id)) return tiles.get(item.id);
+    const tile = wwEl('a', { className: 'ww-tile' });
+    tile.href = `/watch?v=${item.id}`;
+    const from = item.source.startsWith('interest:') ? `your interest "${item.source.slice(9)}"` : 'a channel you\'ve opened';
+    tile.title = `${item.title}\nFound by Worthwhile from ${from}`;
+    const thumb = wwEl('div', { className: 'ww-thumb' });
+    const img = wwEl('img');
+    img.src = `https://i.ytimg.com/vi/${item.id}/mqdefault.jpg`;
+    img.alt = '';
+    img.loading = 'lazy';
+    thumb.append(img);
+    if (item.duration) thumb.append(wwEl('span', { className: 'ww-duration', text: item.duration }));
+    const meta = [wwViews(item.views), wwAgo(item.publishedAt)].filter(Boolean).join(' • ');
+    tile.append(
+      thumb,
+      wwEl('div', { className: 'ww-title', text: item.title }),
+      wwEl('div', { className: 'ww-channel', text: item.channel }),
+      wwEl('div', { className: 'ww-meta', text: meta }),
+    );
+    // Record the channel first (we know its ID) so the page change can't cut it off.
+    tile.addEventListener('click', (event) => {
+      const remembered = rememberChannel({ id: item.channelId, name: item.channel });
+      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      remembered.finally(() => location.assign(tile.href));
+    });
+    tiles.set(item.id, tile);
+    return tile;
+  }
+
+  // ---------------------------------------------------------------------------
+  // "Tell YouTube: not interested"
+  // ---------------------------------------------------------------------------
 
   // One click: up to 10 hidden videos, one at a time, a person-like 1-3 s
   // apart. Clicking again while it runs stops it. Never runs by itself.
@@ -559,7 +614,7 @@
       return;
     }
     const targets = feedOrder
-      .filter((id) => verdicts.get(id) === 'hide' && !told.has(id) && !tellFailed.has(id))
+      .filter((id) => cardFor.get(id)?.getAttribute('data-ww') === 'hide' && !told.has(id) && !tellFailed.has(id))
       .slice(0, TELL_PER_CLICK);
     if (targets.length === 0) return;
 
@@ -573,15 +628,18 @@
       tellStatus = `Telling YouTube ${i + 1} of ${targets.length}…`;
       render();
 
-      const link = known.get(id)?.link;
-      const card = link && link.isConnected ? cardOf(link) : null;
-      const result = card ? await wwTellNotInterested(card) : 'gone';
+      const card = cardFor.get(id);
+      // Counted as told before the click: YouTube swaps the card for its
+      // "Video removed" notice during the click, and scan() keeps notices of
+      // told videos hidden. Undone if the click fails.
+      told.add(id);
+      const result = card && card.isConnected ? await wwTellNotInterested(card) : 'gone';
       if (result === 'ok') {
         done++;
         missingOption = 0;
-        told.add(id);
         await rememberNotInterested(id);
       } else {
+        told.delete(id);
         tellFailed.set(id, result);
         if (result === 'no-option' || result === 'no-menu') missingOption++;
       }
@@ -604,8 +662,8 @@
   // Helpers
   // ---------------------------------------------------------------------------
 
-  // Wraps a callback so an unexpected error puts YouTube's feed back
-  // instead of leaving the page blank.
+  // Wraps a callback so an unexpected error switches the filter off (showing
+  // YouTube's feed as normal) instead of leaving cards hidden.
   function safe(fn) {
     return (...args) => {
       try {
@@ -619,7 +677,7 @@
   }
 
   function onUnexpectedError(err) {
-    console.error('Worthwhile hit an error and is showing YouTube\'s own feed:', err);
+    console.error('Worthwhile hit an error and switched itself off for this page:', err);
     failOpen();
   }
 })();

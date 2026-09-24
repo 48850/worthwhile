@@ -34,7 +34,7 @@ export async function scoreItems(env, ctx, profile, items, { maxNew = Infinity }
   const results = {};
   for (const item of items) {
     const s = scores.get(item.id);
-    results[item.id] = { verdict: verdictFor(s, profile.strictness), scores: s || null };
+    results[item.id] = { verdict: verdictFor(s, { rule: profile.rule, strictness: profile.strictness }), scores: s || null };
   }
   const summary = { items: items.length, cached, scored: fresh.size, unscored: missing.length - fresh.size };
   console.log(JSON.stringify(summary));

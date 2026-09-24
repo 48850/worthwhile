@@ -27,12 +27,23 @@
         </section>
 
         <section>
-          <h2><label for="strictness">Strictness</label></h2>
-          <p class="hint">Higher hides more. Changing this doesn't re-score anything, so it takes effect straight away.</p>
-          <div class="row">
+          <h2>What to hide</h2>
+          <label class="check">
+            <input type="radio" name="rule" value="bait" />
+            Clear bait only (recommended)
+          </label>
+          <p class="hint">Hides clickbait, ragebait, drama and slop. Everything else stays where YouTube put it.</p>
+          <label class="check">
+            <input type="radio" name="rule" value="strict" />
+            Strict
+          </label>
+          <p class="hint">Also hides videos that are neither about your interests nor substantial.</p>
+          <div class="row" id="strictness-row">
+            <label for="strictness" class="hint">Strictness</label>
             <input id="strictness" type="range" min="1" max="5" step="1" />
             <span id="strictness-label"></span>
           </div>
+          <p class="hint">Changing these doesn't re-score anything, so it takes effect straight away.</p>
         </section>
 
         <section>

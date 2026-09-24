@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
-import { BATCH_SIZE, DEFAULT_STRICTNESS, MODEL, buildRequest, parseScores, verdictFor } from '../shared/prompt.js';
+import { BAIT_THRESHOLD, BATCH_SIZE, DEFAULT_RULE, DEFAULT_STRICTNESS, MODEL, buildRequest, parseScores, verdictFor } from '../shared/prompt.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -51,6 +51,8 @@ async function main() {
   const rows = readTitles(csvFile);
   const batches = chunk(rows, BATCH_SIZE);
   const strictness = profile.strictness ?? DEFAULT_STRICTNESS;
+  const rule = profile.rule ?? DEFAULT_RULE;
+  const ruleName = rule === 'strict' ? `strict rule, strictness ${strictness}` : `bait rule (bait >= ${BAIT_THRESHOLD})`;
 
   if (dryRun) {
     const request = buildRequest(profile, batches[0]);
@@ -62,7 +64,7 @@ async function main() {
 
   const client = new Anthropic({ apiKey: loadApiKey(), maxRetries: 3 });
 
-  console.log(`Scoring ${rows.length} rows from ${csvName} in ${batches.length} batch(es) with ${MODEL}, strictness ${strictness}\n`);
+  console.log(`Scoring ${rows.length} rows from ${csvName} in ${batches.length} batch(es) with ${MODEL}, ${ruleName}\n`);
 
   const scores = new Map(); // row id -> { interest_match, substance, bait }
   let tokensIn = 0;
@@ -99,8 +101,8 @@ async function main() {
   const unscored = rows.filter((row) => !scores.has(row.id));
   if (scored.length === 0) throw new Error('No rows were scored, so there is nothing to compare.');
 
-  const modelVerdict = (row, level) => verdictFor(scores.get(row.id), level);
-  const disagreements = scored.filter((row) => modelVerdict(row, strictness) !== row.myVerdict);
+  const modelVerdict = (row) => verdictFor(scores.get(row.id), { rule, strictness });
+  const disagreements = scored.filter((row) => modelVerdict(row) !== row.myVerdict);
 
   // --- Disagreements -------------------------------------------------------
   console.log(`\nDisagreements (${disagreements.length}):`);
@@ -108,8 +110,9 @@ async function main() {
   for (const row of disagreements) {
     const s = scores.get(row.id);
     console.log(
-      `  row ${row.id.padEnd(4)} you: ${row.myVerdict}  model: ${modelVerdict(row, strictness)}` +
-        `   interest ${s.interest_match}, substance ${s.substance}, bait ${s.bait}`,
+      `  row ${row.id.padEnd(4)} you: ${row.myVerdict}  model: ${modelVerdict(row)}` +
+        `   interest ${s.interest_match}, substance ${s.substance}, bait ${s.bait}` +
+        (row.category ? `   (${row.category})` : ''),
     );
     console.log(`           ${row.title}  [${row.channel}]`);
   }
@@ -128,14 +131,26 @@ async function main() {
   console.log(`  you show, model hides: ${lostGood}  (good videos you'd lose)`);
   console.log(`  you hide, model shows: ${missedBait}  (bait that gets through)`);
 
-  // Same scores, every strictness level: shows which setting fits your labels
+  // Same scores under the other rules: shows which setting fits your labels
   // best without spending anything on extra API calls.
-  console.log('\nAgreement at each strictness (same scores, no extra API calls):');
+  const tally = (hide) => {
+    let hits = 0;
+    let goodHidden = 0;
+    for (const row of scored) {
+      const verdict = hide(scores.get(row.id)) ? 'hide' : 'show';
+      if (verdict === row.myVerdict) hits++;
+      else if (row.myVerdict === 'show') goodHidden++;
+    }
+    return `${percent(hits, scored.length).padStart(6)}   good hidden: ${goodHidden}`;
+  };
+  console.log('\nOther settings (same scores, no extra API calls):');
+  for (const n of [5, 6, 7, 8]) {
+    const current = rule !== 'strict' && n === BAIT_THRESHOLD ? '  <- default' : '';
+    console.log(`  bait >= ${n}            ${tally((s) => s.bait >= n)}${current}`);
+  }
   for (let level = 1; level <= 5; level++) {
-    const hits = scored.filter((row) => modelVerdict(row, level) === row.myVerdict).length;
-    const label = level === 1 ? 'lenient' : level === 5 ? 'strict' : '';
-    const current = level === strictness ? '  <- profile.json' : '';
-    console.log(`  ${level} ${label.padEnd(8)} ${percent(hits, scored.length).padStart(6)}${current}`);
+    const current = rule === 'strict' && level === strictness ? '  <- profile.json' : '';
+    console.log(`  strict, strictness ${level} ${tally((s) => verdictFor(s, { rule: 'strict', strictness: level }) === 'hide')}${current}`);
   }
 
   const cost = (tokensIn * PRICE_IN + tokensOut * PRICE_OUT) / 1e6;
@@ -202,7 +217,8 @@ function readTitles(file) {
     } else if (myVerdict !== 'show' && myVerdict !== 'hide') {
       console.warn(`Skipping row ${rowNumber}: my_verdict must be "show" or "hide", got "${myVerdict}"`);
     } else {
-      rows.push({ id: rowNumber, title, channel, myVerdict });
+      const category = col('category') === -1 ? '' : (fields[col('category')] || '').trim(); // optional column
+      rows.push({ id: rowNumber, title, channel, myVerdict, category });
     }
   });
   if (rows.length === 0) throw new Error(`${file} has no usable rows. Add labelled rows under the header.`);

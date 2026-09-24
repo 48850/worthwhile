@@ -8,7 +8,8 @@
 //
 // POST /score
 //   Authorization: Bearer <invite token>
-//   { "profile": { "rubric": "...", "interests": ["chess", ...], "strictness": 2 },
+//   { "profile": { "rubric": "...", "interests": ["chess", ...], "rule": "bait" | "strict", "strictness": 2,
+//                  "examples": [{ "title", "channel", "verdict": "show" | "hide" }] (up to 10, optional) },
 //     "items": [{ "id": "<11-char video ID>", "title": "...", "channel": "...", "duration": "12:03" }] }
 // → 200 { "results": { "<id>": { "verdict": "show" | "hide", "scores": {...} | null } },
 //         "cached": n, "scored": n, "unscored": n }
@@ -21,6 +22,7 @@
 //
 // Errors: 401 bad or missing token, 400 bad request, 503 database unavailable.
 
+import { MAX_EXAMPLES } from '../../shared/prompt.js';
 import { deleteExpiredScores, scoreItems, sha256Hex } from './score.js';
 import { deleteExpiredSearches, sourceItems } from './source.js';
 
@@ -81,6 +83,10 @@ async function handle(pathname, request, env, ctx) {
     rubric: body.profile.rubric.trim(),
     interests: body.profile.interests.map((i) => i.trim()).filter(Boolean),
     strictness: body.profile.strictness,
+    rule: body.profile.rule || 'bait',
+    // The user's own corrections (labelled examples). They're part of the
+    // prompt, so they're part of the cache key too.
+    examples: (body.profile.examples || []).map((e) => ({ title: e.title.trim(), channel: (e.channel || '').trim(), verdict: e.verdict })),
   };
 
   if (pathname === '/source') {
@@ -121,6 +127,17 @@ function checkProfile(profile) {
   }
   if (!Number.isInteger(profile.strictness) || profile.strictness < 1 || profile.strictness > 5) {
     return 'profile.strictness must be a whole number from 1 to 5';
+  }
+  if (profile.rule != null && profile.rule !== 'bait' && profile.rule !== 'strict') return 'profile.rule must be "bait" or "strict"';
+  if (profile.examples != null) {
+    if (!Array.isArray(profile.examples) || profile.examples.length > MAX_EXAMPLES) {
+      return `profile.examples must be a list of up to ${MAX_EXAMPLES}`;
+    }
+    for (const e of profile.examples) {
+      if (typeof e?.title !== 'string' || !e.title.trim() || e.title.length > LIMITS.title) return 'Each example needs a title';
+      if (e.channel != null && (typeof e.channel !== 'string' || e.channel.length > LIMITS.channel)) return 'Example channel is too long';
+      if (e.verdict !== 'show' && e.verdict !== 'hide') return 'Each example needs verdict "show" or "hide"';
+    }
   }
   return null;
 }

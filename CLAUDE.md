@@ -71,7 +71,9 @@ science, literature, theatre), and measures whether sessions felt worth it.
 /worker      src/index.js (HTTP, auth, validation), src/score.js (cache + model),
              src/source.js (M3), wrangler.toml, schema.sql, dev.js (local run),
              package.json (wrangler + SDK)
-/scripts     new-invite.js: makes an invite token and prints the D1 insert
+/scripts     new-invite.js: makes an invite token and prints the D1 insert;
+             edge-cases.csv: 40-title prompt regression suite (run after
+             any prompt change)
 /shared      prompt.js (scoring prompt, used by the worker AND the test script)
 /scripts     score-test.js, titles.csv (tuning set), holdout.csv (never tuned on),
              profile.json, export-titles.console.js (DevTools snippet: copies
@@ -94,18 +96,41 @@ The model scores. The code decides show/hide.
   parseScores() is still defensive: it clamps to 0-10 and drops unknown,
   duplicate or malformed entries. Ids missing from the result count as unscored,
   and unscored items are shown.
-- verdictFor(scores, strictness) applies the rule in code. At strictness 3
-  (the default) it hides if bait >= 6, or if interest_match < 4 and substance < 6.
-  Strictness runs 1-5. Each step up makes every threshold one point stricter,
-  each step down one point more lenient. Changing strictness never needs a
-  re-score.
+- verdictFor(scores, { rule, strictness }) applies the rule in code
+  (changed 2026-09-24: the product now SUBTRACTS from YouTube's feed):
+  - rule "bait" (DEFAULT): hide only if bait >= 6 (BAIT_THRESHOLD).
+    Interest and substance never hide anything. Chosen from titles.csv:
+    bait >= 5/6/7/8 gave 90/87/80/68% agreement and 2/1/0-1/0 good videos
+    hidden; 6 hid only one (an ironic "GET RICH QUICK" critique).
+  - rule "strict" (option): the original rule. At strictness 3 it hides if
+    bait >= 6, or if interest_match < 4 and substance < 6. Each strictness
+    step moves every threshold one point.
+  Changing the rule or strictness never needs a re-score.
+- The prompt's bait anchor includes (added 2026-09-24): "Judge what the video
+  is, not only how its title sounds…" It fixed CGP Grey's "This Video Will
+  Make You Angry" (was bait 7), taking the edge-case suite from 97.5% to
+  100%, with titles.csv unchanged within noise. "The Talent Of RageBaiting"
+  (Joe Bartolozzi) still scores low: from the title alone it reads as
+  commentary, so it's left to user corrections. A stronger sentence was
+  tried and dropped: it didn't fix it and risked hiding real critiques.
+- Corrections (the user's "Show it anyway" / "Wrong call"): the 10 newest go
+  into the system prompt as JSON-encoded labelled examples, marked as data.
+  They're part of the cache key, so a new correction re-scores.
+- Scores vary by about ±1 row between identical runs, even at temperature 0.
 - Batch up to 20 items per call. temperature 0.
-- Cache scores in D1 for 7 days, keyed by hash(rubric + interests) + video ID.
-  No user ID is stored next to a video ID. Editing the rubric changes the hash,
-  so old scores are skipped automatically.
+- Cache scores in D1 for 7 days, keyed by SHA-256(model + system prompt),
+  which covers the rubric, interests and corrections. No user ID is stored
+  next to a video ID.
+- Regression suite: scripts/edge-cases.csv, 40 synthetic titles with labels
+  under the default rule. Columns: title, channel, my_verdict, category.
+  Categories: prompt injection, sarcasm, clickbait on good channels, good
+  content with shouty titles, non-English. RUN IT AFTER ANY PROMPT CHANGE:
+  `npm run score-test -- scripts/edge-cases.csv`. Tune only on titles.csv
+  and the edge-case suite; the holdout is used up.
 
 Profile format (the options page saves this same shape; scripts/profile.json uses it):
-  { "rubric": string, "interests": string[], "strictness": 1-5 }
+  { "rubric": string, "interests": string[], "rule": "bait"|"strict", "strictness": 1-5 }
+  plus, sent by the extension: "examples": [{ title, channel, verdict }] (up to 10)
 The options page also stores the invite token, which is not part of the profile.
 
 ## Milestones
@@ -206,10 +231,9 @@ and auto-advance if it fails.
     "views • age". Feed tiles read views/age from the card (the metadata
     spans with an aria-label); sourced tiles get views/publishedAt from
     videos.list statistics (free). Hovering a feed tile shows its scores.
-  - Grid: one sourced tile after every 3 feed tiles, topped up to 12 when
-    the feed is thin. Tiles carry a "Sourced" label and a tooltip saying
-    why. Sourcing is requested once the feed's first batches are scored, and
-    again after settings changes or 10 minutes.
+  - SUPERSEDED 2026-09-24: the grid no longer mixes sourced tiles in. They
+    now show as one collapsible "Worth your time" row (max 6) above
+    YouTube's grid; see "Home page: in-place filtering" below.
   - Opened channels are stored in chrome.storage.local (device only, max
     20), with Forget in the popup.
     - Feed tiles: watch.js reads the channel from the /watch page once
@@ -234,6 +258,46 @@ and auto-advance if it fails.
     - The hidden card is given a real size off screen ([data-ww-marking])
       while its ⋮ menu is used. Marked IDs go to chrome.storage.local.
     - Matches the English label "Not interested".
+    - Counted as told just before its click, so the "Video removed" notice
+      YouTube swaps in stays hidden (never on screen; checked).
+
+  Home page: in-place filtering (changed 2026-09-24 after real use; the
+  user's normal feed felt better than our grid, so we subtract from it):
+  - No grid of our own. YouTube's grid is filtered in place:
+    - Each card is invisible until scored (its slot is kept), so bait never
+      flashes. After 1.5 s it's shown regardless.
+    - Bait gets data-ww="hide" (display: none), and later cards move up.
+    - Every card gets margin 0 / 16px right. YouTube sets margins per
+      original column, which misaligned cards by 8px after a hide. Checked
+      live: identical layout with nothing hidden, aligned when hiding.
+  - Late verdicts never move things under the user's eyes: bait scored
+    after its card appeared is hidden only if it's below the screen.
+    Otherwise it's "left in place" and listed in the drawer. Corrections and
+    settings changes the user makes apply immediately.
+  - Batches: on-screen cards first (small batch of 10), up to 3 requests in
+    parallel (one after another missed the 1.5 s reveal).
+  - Other cards: ads, mixes and playlists are marked shown at once. YouTube
+    reuses card elements, so a card holding a new video is re-evaluated.
+  - The bar above the grid holds:
+    - the status line and a "Hidden (N)" toggle opening the drawer;
+    - in the drawer, each hidden video with its scores, "Show it anyway",
+      "Tell YouTube: not interested" plus its warning, and the left-in-place
+      list;
+    - the collapsible "Worth your time" row (max 6 sourced videos, one row
+      of YouTube-style tiles; the open/closed state is remembered).
+  - "Wrong call" appears on hover at a visible card's top left (YouTube's
+    hover preview uses the top right). It hides the card and records
+    "should've hidden". Checked live: clickable, doesn't navigate, and the
+    rest of the thumbnail still opens the video.
+  - Corrections live on the device only (chrome.storage.local
+    corrections): { videoId, title, channel, scores, verdict, at }, newest
+    20 kept, 10 newest sent as examples. A correction overrides that video's
+    verdict, and every other card is re-scored with the new examples (no
+    on-screen jumps).
+  - Per-session correction COUNT to D1: deferred to M4, where the session
+    log table is designed. Only the count will be sent, never titles.
+  - Fail-open: unscored = shown, errors = shown. If no card can be read for
+    10 s, or the script throws, the filter switches itself off for the page.
 
 M4 — Behaviour layer.
 - Fatigue detection: session over 25 minutes, or 5+ Shorts skipped within

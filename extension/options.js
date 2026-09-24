@@ -22,9 +22,16 @@ const STRICTNESS_NAMES = {
 
 rubric.maxLength = SETTINGS_LIMITS.rubricLength;
 
+const ruleInputs = [...document.querySelectorAll('input[name="rule"]')];
+
 function showStrictness() {
   strictnessLabel.textContent = STRICTNESS_NAMES[strictness.value];
+  // Strictness only applies to the Strict rule.
+  const strict = ruleInputs.find((r) => r.checked)?.value === 'strict';
+  strictness.disabled = !strict;
+  document.getElementById('strictness-row').style.opacity = strict ? '1' : '0.5';
 }
+ruleInputs.forEach((r) => r.addEventListener('change', showStrictness));
 
 function showRubricCount() {
   rubricCount.textContent = `${rubric.value.length} / ${SETTINGS_LIMITS.rubricLength} characters`;
@@ -35,6 +42,7 @@ loadSettings().then((s) => {
   rubric.value = s.rubric;
   strictness.value = String(s.strictness);
   shortsLabels.checked = s.shortsLabels;
+  for (const r of ruleInputs) r.checked = r.value === s.rule;
   showStrictness();
   showRubricCount();
 });
@@ -52,6 +60,7 @@ form.addEventListener('submit', async (event) => {
   await chrome.storage.sync.set({
     token: token.value.trim(),
     rubric: rubric.value.trim() || DEFAULT_SETTINGS.rubric,
+    rule: ruleInputs.find((r) => r.checked)?.value || 'bait',
     strictness: Number(strictness.value),
     shortsLabels: shortsLabels.checked,
   });
