@@ -348,6 +348,17 @@ and auto-advance if it fails.
     (#shorts-player getVideoData(): video_id, title, author) once
     video_id matches the URL, and shorts.js trusts only that. Checked
     live: 15/15 and 5/5 (fast swiping) correct.
+  - Signed-in collection #2 (2026-09-26, after the fix, 64 Shorts): titles
+    64/64 correct against videos.list. Network list: 54 of 57 checkable
+    Shorts listed in advance (95%), median 12 s ahead.
+    - 7 "unknown": on a full page load of /shorts/<id> the first list is
+      not fetched but embedded as window.ytInitialReelWatchSequenceResponse.
+      shorts-main.js now forwards it once per page load.
+    - 7 had under 3 s of warning: the first Shorts of a new list while the
+      user swiped fast (~0.7 s per Short). YouTube fetches the next list
+      only near the end of the current one, so at that pace the list lands
+      0.3-0.6 s before its first Short. Phase 2 must fail open (show) when
+      a verdict isn't ready; at a normal pace there's ample time.
   - "Collect Shorts" (options page, off by default) records every Short
     swiped to (id, title, channel) in chrome.storage.local collectedShorts
     (max 500), with whether the network list had named it and how many
@@ -394,6 +405,19 @@ and auto-advance if it fails.
     - Also tried adding rankings/fan edits/mainstream hype to the high-bait
       list: still 84.7% but 8 good hidden, 1 bait through. Reverted
       (losing good Shorts is the worse failure). Tuning stopped there.
+  - HOLDOUT (26 Shorts, run once 2026-09-26, prompt frozen at aa7d561):
+    21/26 = 80.8%, BELOW the 85% target. 3 good hidden (Doctor Mike,
+    CarterPCs, #mountains), 2 bait shown. Same scores: bait >= 7 also
+    80.8% with 1 good hidden; bait >= 8 61.5% with 0 good hidden.
+    Across tuning + holdout (40 good Shorts): bait >= 8 flagged none of
+    them, so it's the safe level for any automatic "Not interested".
+    Phase 1 did not pass; the holdout is now spent (usable as tuning data).
+  - User direction (2026-09-26): feed back to YouTube's algorithm: tell it
+    "not interested" in bait, as opposed to good content. Proposed: skip
+    bait; automatic "Not interested" only on very clear bait (bait >= 8),
+    capped, counted, switchable; good Shorts play untouched. No automatic
+    likes (fake engagement under YouTube's rules; inflates public counts).
+    Needs the signed-in Shorts menu HTML from the user.
   Phase 2 only if Phase 1 passes: pre-score the queue and skip bait before
   it's shown. The choice is between skipping on arrival (player hidden and
   muted; may leak a frame) and filtering reel_watch_sequence at the source

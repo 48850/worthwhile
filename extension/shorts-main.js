@@ -4,8 +4,9 @@
 // because only there can it see YouTube's network responses and player. It
 // passes two things to the extension's content scripts (window.postMessage):
 //   1. the list of upcoming Shorts (reel_watch_sequence), which YouTube
-//      fetches before those Shorts play: a READ-ONLY copy of the video IDs
-//      (and titles/channels when YouTube includes them);
+//      fetches before those Shorts play (or, on a full page load, embeds in
+//      the page): a READ-ONLY copy of the video IDs (and titles/channels
+//      when YouTube includes them);
 //   2. the Short now playing (ID, title, channel) from YouTube's player.
 // It never changes what YouTube receives or shows.
 // The one YouTube selector outside selectors.js lives here ('#shorts-player'):
@@ -36,6 +37,26 @@
     }
     return response;
   };
+
+  // On a full page load of /shorts/<id>, YouTube doesn't fetch the first
+  // list: it's embedded in the page as ytInitialReelWatchSequenceResponse
+  // (checked live 2026-09-26; same shape, starts with the NEXT Short). Read
+  // it once per page load; later lists arrive by fetch. The global goes
+  // stale after in-page navigation, hence only once.
+  let sentInitial = false;
+  function forwardInitial() {
+    if (sentInitial || !/^\/shorts\//.test(location.pathname)) return;
+    try {
+      const data = window.ytInitialReelWatchSequenceResponse;
+      if (!Array.isArray(data?.entries)) return;
+      sentInitial = true;
+      forward(data);
+    } catch {
+      // not there; the fetched lists still work
+    }
+  }
+  document.addEventListener('DOMContentLoaded', forwardInitial);
+  document.addEventListener('yt-navigate-finish', forwardInitial);
 
   // The Short now playing, straight from YouTube's player: its video ID and
   // title always belong together (the page's own title text can lag a Short
