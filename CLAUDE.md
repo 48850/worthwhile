@@ -450,8 +450,9 @@ and auto-advance if it fails.
       entries/continuation/headers kept, other fetches untouched, slow
       server (held 3.0 s, nothing removed, removed next time from cache),
       server error (nothing removed), accurate counts.
-    - NOT YET VERIFIED on real YouTube: that YouTube accepts the rebuilt
-      Response, and how the hold feels when swiping fast.
+    - Real YouTube (user's signed-in test, 2026-09-26): worked. Still to
+      measure: how often a verdict is ready in time, and how the hold feels
+      when swiping fast.
   Phase 2 only if Phase 1 passes: pre-score the queue and skip bait before
   it's shown. The choice is between skipping on arrival (player hidden and
   muted; may leak a frame) and filtering reel_watch_sequence at the source
