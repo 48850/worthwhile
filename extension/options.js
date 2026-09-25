@@ -12,6 +12,15 @@ const strictnessLabel = document.getElementById('strictness-label');
 const saved = document.getElementById('saved');
 const shortsLabels = document.getElementById('shorts-labels');
 const hideShortsShelf = document.getElementById('hide-shorts-shelf');
+const shortsRemove = document.getElementById('shorts-remove');
+const shortsRemoveLevel = document.getElementById('shorts-remove-level');
+
+// The removal level only matters while removal is on.
+function showRemoveLevel() {
+  shortsRemoveLevel.disabled = !shortsRemove.checked;
+  document.getElementById('shorts-level-row').style.opacity = shortsRemove.checked ? '1' : '0.5';
+}
+shortsRemove.addEventListener('change', showRemoveLevel);
 
 // Hidden channels: listed with an Unhide button each, saved immediately.
 function showHiddenChannels(list) {
@@ -67,6 +76,9 @@ loadSettings().then((s) => {
   strictness.value = String(s.strictness);
   shortsLabels.checked = s.shortsLabels;
   hideShortsShelf.checked = s.hideShortsShelf;
+  shortsRemove.checked = s.shortsRemove;
+  shortsRemoveLevel.value = String(s.shortsRemoveLevel);
+  showRemoveLevel();
   showHiddenChannels(s.hiddenChannels);
   for (const r of ruleInputs) r.checked = r.value === s.rule;
   showStrictness();
@@ -90,12 +102,39 @@ form.addEventListener('submit', async (event) => {
     strictness: Number(strictness.value),
     shortsLabels: shortsLabels.checked,
     hideShortsShelf: hideShortsShelf.checked,
+    shortsRemove: shortsRemove.checked,
+    shortsRemoveLevel: Number(shortsRemoveLevel.value),
   });
   saved.textContent = 'Saved.';
   setTimeout(() => (saved.textContent = ''), 2500);
 });
 
 mountInterestChips(document.getElementById('interests'));
+
+// Shorts removed from YouTube's lists (this device only): today's count and
+// the most recent ones, each a link so the user can check it.
+async function showRemoved() {
+  const [today, { removedShorts }] = await Promise.all([loadShortsToday(), loadLocal()]);
+  document.getElementById('removed-status').textContent = removedShorts.length
+    ? `Removed today: ${today.removed}. The most recent (open one to check it):`
+    : '';
+  document.getElementById('removed-shorts').replaceChildren(
+    ...removedShorts.slice(0, 20).map((s) => {
+      const li = document.createElement('li');
+      const link = document.createElement('a');
+      link.href = `https://www.youtube.com/shorts/${s.id}`;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = `youtube.com/shorts/${s.id}`;
+      li.append(link, document.createTextNode(` bait ${s.bait}, ${new Date(s.at).toLocaleString()}`));
+      return li;
+    }),
+  );
+}
+showRemoved();
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && (changes.removedShorts || changes.shortsToday)) showRemoved();
+});
 
 // ---------------------------------------------------------------------------
 // Collect Shorts (testing): toggle, summary, copy as CSV, clear
@@ -110,9 +149,12 @@ collectBox.addEventListener('change', () => chrome.storage.sync.set({ collectSho
 
 // "Collected 42 Shorts. The queue listed 40 of 41 in advance (98%), typically 12 s before they played."
 // Rows from the older check (slots, not seconds) have no lead time and are left out.
-// Only rows from the network-list check count ('queuedDom' marks them).
+// Only rows from the network-list check count (they have a lead field;
+// the first, slot-based version didn't).
 function showCollected(list) {
-  const checked = list.filter((s) => s.queued !== 'unknown' && 'queuedDom' in s);
+  const checked = list.filter((s) => s.queued !== 'unknown' && 'lead' in s);
+  const judged = list.filter((s) => 'verdictReady' in s);
+  const ready = judged.filter((s) => s.verdictReady).length;
   const queued = checked.filter((s) => s.queued === 'yes');
   const leads = queued.map((s) => s.lead).filter((l) => l != null).sort((a, b) => a - b);
   const median = leads.length ? leads[Math.floor(leads.length / 2)] : null;
@@ -122,7 +164,8 @@ function showCollected(list) {
     (checked.length
       ? ` The queue listed ${queued.length} of ${checked.length} in advance (${Math.round((100 * queued.length) / checked.length)}%)` +
         (median != null ? `, typically ${median} s before they played (shortest ${shortest} s).` : '.')
-      : '');
+      : '') +
+    (judged.length ? ` Verdict ready in time for ${ready} of ${judged.length} (${Math.round((100 * ready) / judged.length)}%).` : '');
 }
 loadLocal().then(({ collectedShorts }) => showCollected(collectedShorts));
 chrome.storage.onChanged.addListener((changes, area) => {

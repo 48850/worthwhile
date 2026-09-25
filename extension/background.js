@@ -19,7 +19,7 @@ const SOURCE_TIMEOUT_MS = 60000; // sourcing may fetch from YouTube and score do
 const HEALTH_TIMEOUT_MS = 5000;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  const handlers = { score: () => scoreItems(message.items), source: sourceItems, checkServer };
+  const handlers = { score: () => scoreItems(message.items), scoreShorts: () => scoreShorts(message.ids), source: sourceItems, checkServer };
   const handler = handlers[message?.type];
   if (!handler) return false;
   handler().then(sendResponse, (err) => sendResponse({ error: 'network', detail: String(err?.message || err) }));
@@ -30,6 +30,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // or { error }. The content script shows everything on any error.
 async function scoreItems(items) {
   return post('/score', { items }, TIMEOUT_MS);
+}
+
+// Shorts by video ID (up to 20): the Worker looks up each one's details and
+// thumbnail itself. Same reply shape as /score.
+async function scoreShorts(ids) {
+  return post('/score-shorts', { ids }, TIMEOUT_MS);
 }
 
 // Approved videos from the user's interests and the channels they opened

@@ -67,7 +67,10 @@ science, literature, theatre), and measures whether sessions felt worth it.
              common.js (helpers shared by the content scripts, prefixed ww),
              notinterested.js (YouTube "Not interested" via the card's ⋮ menu),
              watch.js (/watch sidebar filter + records opened channels),
-             shorts.js (/shorts auto-skip)
+             shorts.js (/shorts: removes clear bait from YouTube's upcoming
+               list, optional label, Collect Shorts),
+             shorts-main.js (runs in YouTube's page context: reads and
+               filters the upcoming-Shorts list, reports the Short playing)
 /worker      src/index.js (HTTP, auth, validation), src/score.js (cache + model),
              src/source.js (M3), wrangler.toml, schema.sql, dev.js (local run),
              package.json (wrangler + SDK)
@@ -417,7 +420,38 @@ and auto-advance if it fails.
     bait; automatic "Not interested" only on very clear bait (bait >= 8),
     capped, counted, switchable; good Shorts play untouched. No automatic
     likes (fake engagement under YouTube's rules; inflates public counts).
-    Needs the signed-in Shorts menu HTML from the user.
+    The automatic skip + "Not interested" version was blocked by Claude
+    Code's permission check (automated clicks on the user's account). The
+    user then chose: "instead of skip make it disappear".
+  - Phase 2 as built (2026-09-26): REMOVE clear bait from the list before
+    YouTube gets it, so it never appears. Nothing is clicked on the account.
+    - shorts-main.js wraps fetch; for reel_watch_sequence it holds the
+      response (max HOLD_MS 3.5 s), posts the IDs to shorts.js with a
+      requestId, and gets back 'shorts-remove' { requestId, remove }. It
+      returns a new Response (same status, headers, other fields) with those
+      entries dropped. Keeps the Short in the URL; keeps the original if
+      fewer than MIN_KEPT (2) entries would remain; any error or no answer:
+      original response. Posts 'shorts-removed' with what it actually took
+      out (for the count).
+    - shorts.js answers at once (nothing removed) when removal is off; else
+      scores the IDs (/score-shorts, cached ones instantly) and answers
+      within ANSWER_WITHIN_MS 3 s with every ID whose bait >= shortsRemoveLevel.
+      Scores that arrive later are cached for the next list.
+    - The first list after a full page load is embedded in the page, so it
+      can't be filtered (only pre-scored).
+    - Settings: shortsRemove (default on), shortsRemoveLevel (8; options 8/7/6).
+      Local: shortsToday { day, removed } shown in the popup; removedShorts
+      (newest 50: id, bait, at) listed as links on the options page.
+    - YouTube gets no negative signal from removal: it never learns the
+      Shorts were rejected. The positive signal is what the user watches.
+    - Tested on a fake Shorts page (scratchpad fake-shorts2.html + a fake
+      reel_watch_sequence endpoint): removal at 8 and 6, the Short on
+      screen kept, removal off adds no delay (5 ms), MIN_KEPT, other
+      entries/continuation/headers kept, other fetches untouched, slow
+      server (held 3.0 s, nothing removed, removed next time from cache),
+      server error (nothing removed), accurate counts.
+    - NOT YET VERIFIED on real YouTube: that YouTube accepts the rebuilt
+      Response, and how the hold feels when swiping fast.
   Phase 2 only if Phase 1 passes: pre-score the queue and skip bait before
   it's shown. The choice is between skipping on arrival (player hidden and
   muted; may leak a frame) and filtering reel_watch_sequence at the source

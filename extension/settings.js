@@ -18,6 +18,11 @@ const DEFAULT_SETTINGS = {
   rule: 'bait', // 'bait': hide clear bait only (default). 'strict': the original rule, uses strictness.
   strictness: 2, // Strict rule only: 1 (lenient) to 5 (strict). 2 passed the M1 holdout test.
   shortsLabels: false, // label bait Shorts (never skips); off by default
+  // Remove clear bait from YouTube's list of upcoming Shorts, so it never
+  // appears (bait score >= shortsRemoveLevel). 8 hid none of 40 good Shorts
+  // in testing (2026-09-26); 6 hid about 1 in 6.
+  shortsRemove: true,
+  shortsRemoveLevel: 8,
   hideShortsShelf: true, // hide the Shorts shelf on the home page: titles too thin to score, mostly slop
   hiddenChannels: [], // channel names hidden outright by "Hide channel", no model involved
   collectShorts: false, // record Shorts as the user swipes, to build a labelled test set
@@ -53,8 +58,43 @@ function loadSettings() {
 //     The 10 newest go to the scoring prompt as labelled examples.
 //   worthOpen: whether the "Worth your time" row is expanded.
 //   collectedShorts: Shorts recorded by "Collect Shorts" for the labelled
-//     test set. [{ id, title, channel, queued: 'yes'|'no'|'unknown', ahead, at }]
-const LOCAL_DEFAULTS = { openedChannels: [], notInterested: [], corrections: [], worthOpen: true, collectedShorts: [] };
+//     test set. [{ id, title, channel, queued: 'yes'|'no'|'unknown', lead,
+//     verdictReady, at }]
+//   shortsToday: how many bait Shorts were removed today, for the popup.
+//     { day: 'YYYY-MM-DD', removed }
+//   removedShorts: the most recently removed Shorts, so the user can check
+//     them (options page). [{ id, bait, at }]
+const LOCAL_DEFAULTS = {
+  openedChannels: [],
+  notInterested: [],
+  corrections: [],
+  worthOpen: true,
+  collectedShorts: [],
+  shortsToday: { day: '', removed: 0 },
+  removedShorts: [],
+};
+const MAX_REMOVED_KEPT = 50;
+
+// Today's count of removed Shorts (zero on a new day).
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+async function loadShortsToday() {
+  const { shortsToday } = await loadLocal();
+  return shortsToday.day === todayKey() ? shortsToday : { day: todayKey(), removed: 0 };
+}
+
+// Records Shorts removed from YouTube's list: [{ id, bait }].
+async function rememberRemovedShorts(list) {
+  const [today, { removedShorts }] = await Promise.all([loadShortsToday(), loadLocal()]);
+  const now = Date.now();
+  const fresh = list.map((s) => ({ ...s, at: now }));
+  await chrome.storage.local.set({
+    shortsToday: { ...today, removed: today.removed + list.length },
+    removedShorts: [...fresh, ...removedShorts.filter((r) => !list.some((s) => s.id === r.id))].slice(0, MAX_REMOVED_KEPT),
+  });
+}
 const MAX_OPENED_CHANNELS = 20;
 const MAX_NOT_INTERESTED = 1000;
 const MAX_CORRECTIONS = 20;

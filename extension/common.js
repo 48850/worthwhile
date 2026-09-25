@@ -13,6 +13,16 @@ async function wwScore(items) {
   }
 }
 
+// Asks background.js to score Shorts by video ID (up to 20):
+// { results: { id: { verdict, scores } } } or { error }.
+async function wwScoreShorts(ids) {
+  try {
+    return await chrome.runtime.sendMessage({ type: 'scoreShorts', ids });
+  } catch {
+    return { error: 'extension-reloaded' };
+  }
+}
+
 // Asks background.js for approved videos from sourcing: { items } or { error }.
 async function wwSource() {
   try {

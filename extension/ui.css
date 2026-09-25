@@ -74,6 +74,20 @@ textarea {
 textarea {
   resize: vertical;
 }
+select {
+  min-width: 0;
+  max-width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  color: inherit;
+  background: var(--bg, transparent);
+}
+#shorts-level-row {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
 button.primary {
   padding: 8px 18px;
   border: 0;

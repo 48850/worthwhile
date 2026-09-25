@@ -56,3 +56,10 @@ document.getElementById('forget-channels').addEventListener('click', async () =>
   await chrome.storage.local.set({ openedChannels: [] });
   showChannels([]);
 });
+
+// How many bait Shorts were kept out of YouTube's lists today (this device).
+loadShortsToday().then(({ removed }) => {
+  const note = document.getElementById('shorts-removed');
+  note.hidden = removed === 0;
+  note.textContent = `Shorts: ${removed} bait Short${removed === 1 ? '' : 's'} removed today.`;
+});
