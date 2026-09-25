@@ -233,16 +233,19 @@
     if (verdict === 'show') {
       leftInPlace.delete(id);
       mark(card, 'show');
+      wwTally('shown', id);
       return;
     }
     // Bait. If it's already showing and could be in view (on screen or above
     // it), hiding it would move things under the user's eyes: leave it.
     if (!force && card.getAttribute('data-ww') === 'show' && card.getBoundingClientRect().top < innerHeight) {
       leftInPlace.add(id);
+      wwTally('shown', id);
       return;
     }
     leftInPlace.delete(id);
     mark(card, 'hide');
+    wwTally('hidden', id);
   }
 
   function mark(card, state) {
@@ -457,6 +460,7 @@
     const item = known.get(id);
     if (!item) return;
     overrides.set(id, verdict);
+    wwTally('corrections', id);
     apply(id, true);
     render();
     rememberCorrection({ videoId: id, title: item.title, channel: item.channel, scores: scoresOf.get(id) || null, verdict }).catch(onUnexpectedError);

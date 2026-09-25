@@ -237,3 +237,16 @@ label.check {
 .channel-list button {
   margin-left: 10px;
 }
+
+/* Popup: the commitment lock panel */
+.lock-panel {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.lock-panel h2 {
+  margin-top: 0;
+}
+.lock-panel textarea {
+  margin: 8px 0;
+}

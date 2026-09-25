@@ -4,6 +4,7 @@
 //   POST /score   score a batch of feed items (needs an invite token)
 //   POST /source  find extra approved videos for the grid (needs an invite token)
 //   POST /score-shorts  score Shorts by video ID, with thumbnails (needs an invite token)
+//   POST /session save session records: counts, durations, ratings (needs an invite token)
 //   GET  /health  liveness check, no token needed
 // Plus a daily cron (wrangler.toml) that deletes expired cache rows.
 //
@@ -27,10 +28,18 @@
 // → 200 same shape as /score. The Worker looks up each Short's details and
 //   thumbnail itself (worker/src/shorts.js).
 //
+// POST /session
+//   Authorization: Bearer <invite token>
+//   { "sessions": [{ "session_id", "user_id", "started_at", "duration_s", "filter_on",
+//                    "items_shown", "items_hidden", "shorts_seen", "shorts_removed",
+//                    "corrections", "rating" }] } (1 to 20; see worker/src/sessions.js)
+// → 200 { "saved": n }
+//
 // Errors: 401 bad or missing token, 400 bad request, 503 database unavailable.
 
 import { MAX_EXAMPLES } from '../../shared/prompt.js';
 import { deleteExpiredScores, scoreItems, sha256Hex } from './score.js';
+import { checkSessions, saveSessions } from './sessions.js';
 import { scoreShorts } from './shorts.js';
 import { deleteExpiredSearches, sourceItems } from './source.js';
 
@@ -51,7 +60,7 @@ export default {
     const { pathname } = new URL(request.url);
     try {
       if (pathname === '/health') return json({ ok: true });
-      if (pathname === '/score' || pathname === '/source' || pathname === '/score-shorts') {
+      if (['/score', '/source', '/score-shorts', '/session'].includes(pathname)) {
         if (request.method !== 'POST') return json({ error: 'Use POST' }, 405);
         return await handle(pathname, request, env, ctx);
       }
@@ -85,6 +94,12 @@ async function handle(pathname, request, env, ctx) {
   } catch {
     return json({ error: 'Body must be JSON' }, 400);
   }
+  if (pathname === '/session') {
+    const problem = checkSessions(body?.sessions);
+    if (problem) return json({ error: problem }, 400);
+    return json(await saveSessions(env, body.sessions));
+  }
+
   const problem =
     checkProfile(body?.profile) ||
     (pathname === '/score' ? checkItems(body.items) : pathname === '/score-shorts' ? checkIds(body.ids) : checkChannels(body.channels));

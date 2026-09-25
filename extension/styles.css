@@ -5,6 +5,7 @@
  *              drawer and the "Worth your time" row
  *   .ww-wrong  the "Wrong call" button on YouTube's cards (shown on hover)
  *   #ww-shorts-label  the "Worthwhile: bait" label on Shorts
+ *   #ww-behaviour     the rating question and the fatigue offer (behaviour.js)
  * YouTube's own grid is filtered in place by CSS generated in selectors.js,
  * which is also where every YouTube selector and variable name lives.
  * Colours and grid geometry come from --ww-* variables set there, so light and
@@ -268,4 +269,61 @@ html.ww-on #ww-feed {
   color: #fff;
   background: rgba(0, 0, 0, 0.7);
   pointer-events: none;
+}
+
+/* Rating question and fatigue offer (behaviour.js): a small card, top right.
+   A fixed dark card, so it reads the same on YouTube's light and dark themes. */
+#ww-behaviour {
+  position: fixed;
+  z-index: 2100;
+  top: 72px;
+  right: 24px;
+  box-sizing: border-box;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  padding: 16px;
+  border-radius: 12px;
+  font: 400 14px/20px Roboto, Arial, sans-serif;
+  color: #f1f1f1;
+  background: #212121;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+}
+#ww-behaviour p {
+  margin: 0 0 8px;
+}
+#ww-behaviour .ww-behaviour-title {
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 22px;
+}
+#ww-behaviour .ww-behaviour-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+#ww-behaviour button {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 18px;
+  font: 500 14px/20px Roboto, Arial, sans-serif;
+  color: #f1f1f1;
+  background: #3f3f3f;
+  cursor: pointer;
+}
+#ww-behaviour button:hover {
+  background: #535353;
+}
+#ww-behaviour button.primary {
+  color: #0f0f0f;
+  background: #f1f1f1;
+}
+#ww-behaviour .ww-behaviour-scale button {
+  flex: 1;
+  padding: 8px 0;
+}
+#ww-behaviour .ww-behaviour-skip {
+  margin-top: 8px;
+  padding: 4px 8px;
+  color: #aaa;
+  background: transparent;
 }

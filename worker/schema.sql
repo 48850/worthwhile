@@ -49,3 +49,24 @@ CREATE TABLE IF NOT EXISTS invites (
   label      TEXT,              -- a note for you, e.g. "tester 3"
   created_at INTEGER NOT NULL   -- unix seconds
 ) WITHOUT ROWID;
+
+-- Sessions (M4): one row per YouTube session, for measuring whether
+-- Worthwhile makes time on YouTube feel better spent. Counts, durations and
+-- ratings only: no titles, no video IDs, and no invite token, so a row can't
+-- be tied to a tester. user_id is a random ID made by the extension on
+-- install. A session ends after 30 minutes away from YouTube; the rating
+-- comes later ("Was your last session worth it?"), so rows are upserted.
+CREATE TABLE IF NOT EXISTS sessions (
+  session_id     TEXT    NOT NULL PRIMARY KEY, -- random, made by the extension
+  user_id        TEXT    NOT NULL,             -- random per install
+  started_at     INTEGER NOT NULL,             -- unix seconds, to the minute
+  duration_s     INTEGER NOT NULL,             -- time with YouTube on screen
+  filter_on      INTEGER NOT NULL,             -- 1: on the whole session, 0: off at some point
+  items_shown    INTEGER NOT NULL,             -- home feed and sidebar
+  items_hidden   INTEGER NOT NULL,
+  shorts_seen    INTEGER NOT NULL,
+  shorts_removed INTEGER NOT NULL,
+  corrections    INTEGER NOT NULL,             -- "Show it anyway" / "Wrong call" clicks
+  rating         INTEGER,                      -- 1-5, or NULL if not rated
+  saved_at       INTEGER NOT NULL              -- unix seconds
+) WITHOUT ROWID;

@@ -8,7 +8,7 @@
 // icon and in the popup ("Offline: showing everything"), so failing open is
 // never silent.
 
-importScripts('settings.js');
+importScripts('settings.js', 'sessions.js');
 
 // Where the Worker runs: the deployed Cloudflare Worker. For local
 // development, use 'http://127.0.0.1:8787' (`npm run dev` in the project root).
@@ -19,7 +19,15 @@ const SOURCE_TIMEOUT_MS = 60000; // sourcing may fetch from YouTube and score do
 const HEALTH_TIMEOUT_MS = 5000;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  const handlers = { score: () => scoreItems(message.items), scoreShorts: () => scoreShorts(message.ids), source: sourceItems, checkServer };
+  const handlers = {
+    score: () => scoreItems(message.items),
+    scoreShorts: () => scoreShorts(message.ids),
+    source: sourceItems,
+    checkServer,
+    activity: () => onActivity(message), // sessions.js
+    fatigue: onFatigue,
+    rate: () => onRate(message),
+  };
   const handler = handlers[message?.type];
   if (!handler) return false;
   handler().then(sendResponse, (err) => sendResponse({ error: 'network', detail: String(err?.message || err) }));
@@ -46,7 +54,8 @@ async function sourceItems() {
   return post('/source', { channels }, SOURCE_TIMEOUT_MS);
 }
 
-async function post(path, body, timeoutMs) {
+// profile: false for requests that don't score anything (POST /session).
+async function post(path, body, timeoutMs, { profile: withProfile = true } = {}) {
   const [s, { corrections }] = await Promise.all([loadSettings(), loadLocal()]);
   if (!s.token) {
     await setServerStatus('no-token');
@@ -60,7 +69,7 @@ async function post(path, body, timeoutMs) {
     response = await fetch(`${WORKER_URL}${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${s.token}` },
-      body: JSON.stringify({ profile, ...body }),
+      body: JSON.stringify(withProfile ? { profile, ...body } : body),
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
@@ -127,10 +136,21 @@ async function updateBadge() {
 
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   updateBadge();
-  // First install: open settings so the tester can paste their invite token.
-  if (reason === 'install') chrome.runtime.openOptionsPage();
+  if (reason === 'install') {
+    // Installing switches the filter on, so the commitment lock starts now.
+    chrome.storage.sync.set({ lockedUntil: Date.now() + LOCK_DAYS * 24 * 60 * 60 * 1000 });
+    // First install: open settings so the tester can paste their invite token.
+    chrome.runtime.openOptionsPage();
+  }
 });
 chrome.runtime.onStartup.addListener(updateBadge);
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync' && (changes.enabled || changes.token)) updateBadge();
+  // Switching the filter on (popup, or the fatigue offer) locks it for LOCK_DAYS.
+  if (area === 'sync' && changes.enabled?.newValue === true && changes.enabled.oldValue === false) {
+    chrome.storage.sync.set({ lockedUntil: Date.now() + LOCK_DAYS * 24 * 60 * 60 * 1000 });
+  }
+});
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === SESSION_ALARM) onSessionAlarm();
 });

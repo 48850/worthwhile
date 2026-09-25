@@ -37,7 +37,23 @@ science, literature, theatre), and measures whether sessions felt worth it.
     the 5-in-a-row pause, popup channel list.
   Not yet verified on real YouTube: "Not interested" itself (only exists when
   signed in), sourcing with a real YouTube key, Shorts on a signed-in account.
-- M4 onwards: not started. Wait for go-ahead after each milestone.
+- M4 (behaviour layer): built 2026-09-26, waiting for the user's manual test.
+  Automated checks passed:
+  - sessions.js in Node (fake clock and storage): on-screen time and counts
+    add up; a hidden page adds counts but no time; 30 min away ends the
+    session (next heartbeat or the alarm), sends it and asks for a rating
+    once; the rating updates the same record; skip sends nothing more; one
+    fatigue offer per session (25 min, filter off; fast Shorts, filter off);
+    offline records wait in the outbox; sessions under a minute aren't
+    asked about.
+  - Worker /session on a local D1: token required, validation, extra fields
+    (e.g. a title) never stored, upsert, a later unrated send keeps the
+    rating, logs counts only.
+  - Test pages: the rating card and fatigue card (Switch it on sets the
+    filter on), the popup lock (panel instead of switching off, 60 s
+    countdown and a 10-character reason both required, then off and
+    unlocked; the reason isn't stored).
+- M5: not started. Wait for go-ahead after each milestone.
 
 ## Hard constraints
 - Extension in plain JavaScript, NO bundler or build step. The /extension folder
@@ -469,6 +485,27 @@ M4 — Behaviour layer.
   "Was your last session worth it? 1–5".
 - Log to D1: session id, anonymous user id, start time, duration, filter on/off,
   items shown, items hidden, rating.
+
+  As built (2026-09-26):
+  - Sessions are kept by background.js (sessions.js) from behaviour.js's
+    15-second heartbeats while YouTube is on screen. duration_s is on-screen
+    time. filter_on = 1 only if the filter was on the whole session.
+    items_shown/items_hidden are home-feed and sidebar cards with a verdict
+    (each counted once per page); Shorts are counted separately
+    (shorts_seen, shorts_removed); corrections = "Show it anyway"/"Wrong
+    call" clicks (the per-session correction count asked for on 2026-09-24).
+  - An ended session is sent right away (rating null) and again with the
+    rating; the Worker upserts. user_id is a random UUID made on install.
+    The invite token is checked but never stored with a session.
+  - Regret rating only for sessions of a minute or more, asked once, and
+    only within 48 hours.
+  - Fatigue offers appear only while the filter is off (as the spec says:
+    they offer to switch it on). With the filter on they never show.
+  - The lock: install, or any switch from off to on (popup or the fatigue
+    offer), sets lockedUntil = now + 7 days (sync storage). Extension
+    updates don't start a lock. The typed reason is never stored or sent
+    (privacy rule: counts, durations and ratings only).
+  - Deploying needs `npm run db:remote` again for the sessions table.
 
 M5 — Tester build. A script that zips /extension for distribution, a README with
 install steps for Chrome and Edge, and a token-protected stats endpoint showing

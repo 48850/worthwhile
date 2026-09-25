@@ -26,7 +26,12 @@ const DEFAULT_SETTINGS = {
   hideShortsShelf: true, // hide the Shorts shelf on the home page: titles too thin to score, mostly slop
   hiddenChannels: [], // channel names hidden outright by "Hide channel", no model involved
   collectShorts: false, // record Shorts as the user swipes, to build a labelled test set
+  // Commitment lock (M4): switching the filter on keeps it on for LOCK_DAYS.
+  // Switching off before then takes a 60-second wait and a typed reason
+  // (popup). Unix ms; 0 = not locked.
+  lockedUntil: 0,
 };
+const LOCK_DAYS = 7;
 
 const MAX_HIDDEN_CHANNELS = 200;
 

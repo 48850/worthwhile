@@ -85,6 +85,7 @@
       const channelHidden = channel !== '' && settings.hiddenChannels.some((c) => c.toLowerCase() === channel);
       const verdict = channelHidden ? 'hide' : verdicts.get(item.videoId) || 'pending';
       if (card.getAttribute('data-ww-verdict') !== verdict) card.setAttribute('data-ww-verdict', verdict);
+      if (verdict !== 'pending') wwTally(verdict === 'hide' ? 'hidden' : 'shown', item.videoId);
       if (verdict === 'pending' && !inFlight.has(item.videoId)) queue.set(item.videoId, item);
     }
     send();

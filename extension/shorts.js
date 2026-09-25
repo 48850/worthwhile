@@ -33,6 +33,12 @@
   // id -> { title, channel }. The only title source trusted for a Short.
   const nowPlaying = new Map();
   let currentId = null; // the Short on screen; null when not on a Short
+  // Fatigue (M4): Shorts swiped away within FAST_SKIP_MS, in a row. At
+  // FAST_SKIPS, behaviour.js may offer to switch the filter on.
+  const FAST_SKIP_MS = 3000;
+  const FAST_SKIPS = 5;
+  let arrivedAt = 0;
+  let fastSkips = 0;
 
   // ---------------------------------------------------------------------------
   // Messages from shorts-main.js (page messages are untrusted: check shapes)
@@ -50,6 +56,7 @@
       // What shorts-main.js actually took out (it keeps a list that would get too short).
       const removed = data.ids.filter((id) => typeof id === 'string' && scores.has(id));
       if (removed.length) rememberRemovedShorts(removed.map((id) => ({ id, bait: scores.get(id).bait })));
+      removed.forEach((id) => wwTally('shortsRemoved', id));
     } else if (data.type === 'shorts-sequence' && Array.isArray(data.shorts)) {
       const now = Date.now();
       const ids = [];
@@ -138,9 +145,17 @@
   function arrive() {
     const id = /^\/shorts\/([\w-]{11})/.exec(location.pathname)?.[1] || null;
     if (id === currentId) return;
+    const now = Date.now();
+    fastSkips = currentId && id && now - arrivedAt < FAST_SKIP_MS ? fastSkips + 1 : 0;
+    if (fastSkips >= FAST_SKIPS) {
+      fastSkips = 0;
+      wwOfferFilter('shorts');
+    }
+    arrivedAt = now;
     currentId = id;
     removeLabel();
     if (!id) return;
+    wwTally('shortsSeen', id);
     const verdictReady = scores.has(id);
     requestScores([id]); // not in YouTube's list in time: score it now (for the label)
     maybeLabel(id);

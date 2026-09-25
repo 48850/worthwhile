@@ -32,6 +32,19 @@ async function wwSource() {
   }
 }
 
+// Counts for the session record (M4), sent with behaviour.js's heartbeat.
+// Each (kind, id) is counted once per page, so recycled cards aren't counted
+// twice. Kinds: shown, hidden (home feed and sidebar), shortsSeen,
+// shortsRemoved, corrections.
+const wwCounts = { shown: 0, hidden: 0, shortsSeen: 0, shortsRemoved: 0, corrections: 0 };
+const wwCounted = new Set();
+function wwTally(kind, id) {
+  const key = `${kind}:${id}`;
+  if (wwCounted.has(key)) return;
+  wwCounted.add(key);
+  wwCounts[kind]++;
+}
+
 function wwIsActive(settings) {
   return settings.enabled && Boolean(settings.token);
 }
