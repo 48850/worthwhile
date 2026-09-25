@@ -119,8 +119,9 @@ const SELECTORS = {
 
   // /shorts page. There is one player element, reused as you swipe; the
   // URL (/shorts/<id>) and the page title change with each Short.
-  shortsTitle: 'ytd-shorts yt-shorts-video-title-view-model',
-  shortsChannel: 'ytd-shorts yt-reel-channel-bar-view-model a[href^="/@"]',
+  // A Short's title and channel are NOT read from the page (its text lags a
+  // Short behind on swipes): shorts-main.js asks YouTube's player
+  // (#shorts-player, the one selector kept there) for them with the ID.
   shortsPlayer: 'ytd-shorts ytd-reel-video-renderer', // the "Worthwhile: bait" label is placed over this
 
   // The queue of upcoming Shorts (checked live 2026-09-25, signed out): the

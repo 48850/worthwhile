@@ -339,6 +339,15 @@ and auto-advance if it fails.
       the list's order. Lists hold ~11-13 Shorts; the next list arrived
       while Short 12 of 13 was playing, so there is always at least one
       Short of warning (8 s at fast swiping).
+  - Bug found 2026-09-26: the first 100 collected Shorts had a run of 26
+    (rows 57-82) where each ID carried the previous Short's title (the page
+    title text lagged a swipe behind, and the check "differs from the last
+    title" let the lag persist). Labels were moved to the right IDs by
+    matching titles against videos.list; the unmatched ends were dropped.
+    Fix: shorts-main.js reads the Short now playing from YouTube's player
+    (#shorts-player getVideoData(): video_id, title, author) once
+    video_id matches the URL, and shorts.js trusts only that. Checked
+    live: 15/15 and 5/5 (fast swiping) correct.
   - "Collect Shorts" (options page, off by default) records every Short
     swiped to (id, title, channel) in chrome.storage.local collectedShorts
     (max 500), with whether the network list had named it and how many
@@ -370,6 +379,21 @@ and auto-advance if it fails.
       same rows from text only, to see what images add.
     - Target 85% on a holdout of the user's ~90 labelled Shorts (a third
       bait), split like M1: tune on the rest, run the holdout once.
+  - Labelled set (2026-09-26): scripts/shorts.csv, 100 collected, 85
+    labelled after the repair (45 hide; 14 left unlabelled as unsure;
+    labels drafted by Claude from the rubric and accepted by the user, so
+    agreement partly measures Claude-vs-Claude). Split by fixed seed into
+    shorts-tuning.csv (59, 31 hide) and shorts-holdout.csv (26, 14 hide).
+  - Tuning results (tuning set only, bait >= 6):
+    - First Shorts prompt: thumbnails 76.3% (13 good hidden), text only
+      84.7%. Images made light content (sketches, tech, cooking) look like
+      bait.
+    - Added "Shorts are casual; light content is not bait; a face alone
+      says nothing": thumbnails 84.7% (4 good hidden, 5 bait through),
+      text only 81.4%. KEPT.
+    - Also tried adding rankings/fan edits/mainstream hype to the high-bait
+      list: still 84.7% but 8 good hidden, 1 bait through. Reverted
+      (losing good Shorts is the worse failure). Tuning stopped there.
   Phase 2 only if Phase 1 passes: pre-score the queue and skip bait before
   it's shown. The choice is between skipping on arrival (player hidden and
   muted; may leak a frame) and filtering reel_watch_sequence at the source

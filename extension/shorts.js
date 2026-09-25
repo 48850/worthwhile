@@ -22,7 +22,6 @@
   let settings = { ...DEFAULT_SETTINGS };
   const verdicts = new Map(); // shortId -> 'show' | 'hide'
   let lastId = null;
-  let lastTitle = '';
 
   // Every Short seen in YouTube's upcoming queue, and when it first appeared.
   // Watched continuously (not one snapshot per Short), so fast swipes can't
@@ -37,8 +36,20 @@
   // list arrives as the Shorts page loads.
   const firstSeenInSequence = new Map(); // shortId -> ms
   const upcomingDetails = new Map(); // shortId -> { title, channel, description } when YouTube sent them
+  // The Short now playing, as YouTube's player reports it (shorts-main.js):
+  // id -> { title, channel }. The only title source trusted for a Short.
+  const nowPlaying = new Map();
   window.addEventListener('message', (event) => {
-    if (event.source !== window || event.data?.source !== 'worthwhile-main' || event.data.type !== 'shorts-sequence') return;
+    if (event.source !== window || event.data?.source !== 'worthwhile-main') return;
+    if (event.data.type === 'shorts-now') {
+      const { id, title, channel } = event.data; // page messages are untrusted: check the shape
+      if (typeof id === 'string' && /^[\w-]{11}$/.test(id) && typeof title === 'string' && title.trim()) {
+        nowPlaying.set(id, { title: title.trim().slice(0, 300), channel: typeof channel === 'string' ? channel.trim().slice(0, 150) : '' });
+        if (nowPlaying.size > 200) nowPlaying.delete(nowPlaying.keys().next().value); // keep it small: oldest out
+      }
+      return;
+    }
+    if (event.data.type !== 'shorts-sequence') return;
     const now = Date.now();
     for (const s of Array.isArray(event.data.shorts) ? event.data.shorts : []) {
       if (typeof s?.id !== 'string' || !/^[\w-]{11}$/.test(s.id)) continue; // page messages are untrusted: check the shape
@@ -69,15 +80,6 @@
     return wwIsActive(settings) && settings.shortsLabels;
   }
 
-  // The player's title element (empty until the Short renders), and the page
-  // title ("(3) Title - YouTube"), which starts out generic on a fresh load.
-  function panelTitle() {
-    return (document.querySelector(SELECTORS.shortsTitle)?.textContent || '').replace(/\s+/g, ' ').trim();
-  }
-  function pageTitle() {
-    return document.title.replace(/^\(\d+\)\s*/, '').replace(/\s*-\s*YouTube$/, '').trim();
-  }
-
   async function check() {
     removeLabel();
     const match = /^\/shorts\/([\w-]{11})/.exec(location.pathname);
@@ -98,25 +100,17 @@
     const queueCheck = collecting ? checkQueue(id) : null;
     noteQueue();
 
-    // The title catches up with the new Short a moment after the URL. Only
-    // trust a title that belongs to this Short: the player's title once it
-    // differs from the last Short's, or the page title once it has changed
-    // since this Short came up. If neither, leave the Short alone.
-    const titleAtStart = pageTitle();
-    let title = verdicts.has(id) && !collecting ? 'known' : null;
-    if (!title) {
-      title = await wwWaitFor(() => {
-        const panel = panelTitle();
-        if (panel && panel !== lastTitle) return panel;
-        const page = pageTitle();
-        if (page && page !== lastTitle && page !== titleAtStart) return page;
-        return null;
-      }, 4000);
-      if (!title || location.pathname !== `/shorts/${id}`) return;
-      lastTitle = title;
+    // Title and channel come from YouTube's player, which reports them with
+    // the video ID, so they can't belong to a different Short. The page's
+    // own title text lags behind on swipes and is not used. No report
+    // within 4 s: leave this Short alone.
+    let title = 'known';
+    let channel = '';
+    if (!verdicts.has(id) || collecting) {
+      const playing = await wwWaitFor(() => nowPlaying.get(id), 4000);
+      if (!playing || location.pathname !== `/shorts/${id}`) return;
+      ({ title, channel } = playing);
     }
-
-    const channel = (document.querySelector(SELECTORS.shortsChannel)?.textContent || '').trim();
     if (collecting) await collect({ id, title, channel, ...queueCheck });
     if (!isOn()) return;
 
