@@ -12,6 +12,7 @@
 // any classifier error shows everything it was asked about.
 
 import type { TasteProfile } from '../contracts/taste-profile';
+import { tally } from './counts';
 import { decide } from './decide';
 import type { EventEmitter } from './events';
 import type { Classifier, SiteAdapter } from './interfaces';
@@ -106,6 +107,7 @@ export function createFeedFilter(options: FeedFilterOptions) {
           site.showItem(card);
           if (decision.action === 'hallmark') site.markHallmarked(card);
         }
+        tally(decision.action === 'hide' ? 'hidden' : 'shown', item.id); // for the session record
         events.itemDecided(item.id, item.isShort, decision);
         continue;
       }

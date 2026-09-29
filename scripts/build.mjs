@@ -72,9 +72,10 @@ if (fs.existsSync(path.join(ROOT, iosEntry))) {
   fs.rmSync(iosOut, { recursive: true, force: true });
   await esbuild.build({ ...common, entryPoints: [iosEntry], absWorkingDir: ROOT, outfile: path.join(iosOut, 'filter.js') });
 
-  // The WebView has no chrome.* at all: any mention means Chrome-only code slipped in.
+  // The WebView has no chrome.* at all: any mention means Chrome-only code
+  // slipped in. Optional chaining (chrome?.x) counts too.
   const bundle = fs.readFileSync(path.join(iosOut, 'filter.js'), 'utf8');
-  const hits = bundle.split('\n').flatMap((line, i) => (line.includes('chrome.') ? [`  line ${i + 1}: ${line.trim().slice(0, 120)}`] : []));
+  const hits = bundle.split('\n').flatMap((line, i) => (/chrome\??\./.test(line) ? [`  line ${i + 1}: ${line.trim().slice(0, 120)}`] : []));
   if (hits.length) {
     console.error(`dist/ios/filter.js mentions "chrome." (${hits.length} line${hits.length === 1 ? '' : 's'}):\n${hits.join('\n')}`);
     process.exit(1);
