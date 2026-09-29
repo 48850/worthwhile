@@ -18,6 +18,12 @@ const FORBIDDEN = [
   { pattern: /__WORTHWHILE_CONFIG__/, what: '__WORTHWHILE_CONFIG__ (iOS adapter only)' },
 ];
 
+// The source with comments blanked out (comments may mention these APIs),
+// keeping line breaks so line numbers stay right.
+function codeOnly(source) {
+  return source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (comment) => comment.replace(/[^\n]/g, ' '));
+}
+
 const problems = [];
 function walk(dir) {
   if (!fs.existsSync(dir)) return;
@@ -25,10 +31,9 @@ function walk(dir) {
     const file = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(file);
     else if (/\.(ts|js|mjs)$/.test(entry.name)) {
-      fs.readFileSync(file, 'utf8')
+      codeOnly(fs.readFileSync(file, 'utf8'))
         .split('\n')
-        .forEach((line, i) => {
-          const code = line.replace(/\/\/.*$/, ''); // comments may mention them
+        .forEach((code, i) => {
           for (const { pattern, what } of FORBIDDEN) {
             if (pattern.test(code)) problems.push(`${path.relative(ROOT, file)}:${i + 1}: ${what}`);
           }
