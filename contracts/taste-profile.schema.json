@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worthwhile.app/contracts/taste-profile.schema.json",
+  "title": "TasteProfile",
+  "description": "A user's taste profile, as returned by the website's authenticated GET /api/taste-profile. Keep in step with contracts/taste-profile.ts.",
+  "type": "object",
+  "required": ["interests", "always_hide", "shorts_policy", "quality_bar", "respected_creators"],
+  "additionalProperties": false,
+  "properties": {
+    "interests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["topic", "weight", "depth"],
+        "additionalProperties": false,
+        "properties": {
+          "topic": { "type": "string", "minLength": 1 },
+          "weight": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "depth": { "type": "string", "enum": ["intro", "intermediate", "deep"] }
+        }
+      }
+    },
+    "always_hide": { "type": "array", "items": { "type": "string" } },
+    "shorts_policy": {
+      "type": "object",
+      "required": ["allow", "hide"],
+      "additionalProperties": false,
+      "properties": {
+        "allow": { "type": "array", "items": { "type": "string" } },
+        "hide": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "quality_bar": { "type": "string" },
+    "respected_creators": { "type": "array", "items": { "type": "string" } }
+  }
+}
