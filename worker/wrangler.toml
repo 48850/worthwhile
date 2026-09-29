@@ -3,13 +3,13 @@ name = "worthwhile"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 
-# D1 holds everything stored: score cache and invite tokens (session logs in M4).
+# D1 holds everything stored: score and search caches, invite tokens, session logs.
 # Local dev (`npm run dev`) uses a local copy and ignores database_id.
-# Before deploying: run `npx wrangler d1 create worthwhile` and paste the id it prints here.
+# Created 2026-09-29 with `npx wrangler d1 create worthwhile` (region EEUR).
 [[d1_databases]]
 binding = "DB"
 database_name = "worthwhile"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "8f5543f8-9796-4706-b528-671df5c4644f"
 
 # Daily clean-up of expired cache rows (03:17 UTC).
 [triggers]
