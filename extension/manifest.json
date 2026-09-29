@@ -5,8 +5,8 @@
   "description": "Filters your YouTube home feed down to the videos worth your time.",
   "permissions": ["storage", "alarms"],
   "host_permissions": [
-    "http://127.0.0.1:8787/*",
-    "https://*.workers.dev/*"
+    "https://worthwhile.worthwhile-worker.workers.dev/*",
+    "http://127.0.0.1:8787/*"
   ],
   "background": {
     "service_worker": "background.js"

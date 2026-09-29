@@ -10,10 +10,11 @@
 
 importScripts('settings.js', 'sessions.js');
 
-// Where the Worker runs: the deployed Cloudflare Worker. For local
-// development, use 'http://127.0.0.1:8787' (`npm run dev` in the project root).
+// Where the Worker runs: the deployed Cloudflare Worker (deployed 2026-09-29
+// with `npm run deploy` in /worker). For local development, use
+// 'http://127.0.0.1:8787' (`npm run dev` in the project root).
 // host_permissions in manifest.json must match.
-const WORKER_URL = 'http://127.0.0.1:8787';
+const WORKER_URL = 'https://worthwhile.worthwhile-worker.workers.dev';
 const TIMEOUT_MS = 30000;
 const SOURCE_TIMEOUT_MS = 60000; // sourcing may fetch from YouTube and score dozens of videos
 const HEALTH_TIMEOUT_MS = 5000;
