@@ -2,15 +2,26 @@
   "name": "worthwhile",
   "private": true,
   "type": "module",
-  "description": "YouTube feed filter: scoring scripts and shared prompt. The extension in /extension has no build step and ignores this file.",
+  "description": "Worthwhile: YouTube filter. Chrome extension and iOS WebView script built from TypeScript (core, sites, adapters), plus scoring scripts and the shared prompt.",
   "engines": {
     "node": ">=20.12"
   },
   "scripts": {
     "dev": "node scripts/dev.js",
-    "score-test": "node scripts/score-test.js"
+    "score-test": "node scripts/score-test.js",
+    "build": "node scripts/check-boundaries.mjs && node scripts/build.mjs",
+    "build:dev": "node scripts/check-boundaries.mjs && node scripts/build.mjs --dev",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "check:boundaries": "node scripts/check-boundaries.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.4",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
   }
 }
