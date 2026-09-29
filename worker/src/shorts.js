@@ -4,26 +4,30 @@
 // Shorts YouTube is about to play; for each one not already cached this:
 //   1. looks up title, channel, tags and description (videos.list, 1 unit
 //      per 50 IDs, from the shared daily budget),
-//   2. fetches its thumbnail (i.ytimg.com, not part of any quota),
-//   3. scores text and image together with the Shorts prompt.
+//   2. fetches its thumbnail and three frames from later in the Short
+//      (i.ytimg.com, not part of any quota),
+//   3. scores text and images together with the Shorts prompt.
+// Free Workers plan: at most 50 outside requests per call. 10 Shorts x 4
+// images + 1 lookup + the model call (with retries) stays under it, hence
+// LIMITS.shorts (10) in index.js.
 // Same cache, rule and fail-open behaviour as the feed (score.js): a Short
 // we can't look up or score comes back unscored, which means "show".
 // Privacy: logs contain counts only, never titles or video IDs.
 
-import { shortFromVideo, shortsThumbnailUrl } from '../../shared/prompt.js';
+import { SHORTS_FRAMES, shortFromVideo, shortsImageUrl } from '../../shared/prompt.js';
 import { scoreItems } from './score.js';
 import { DEFAULT_UNITS_PER_DAY, limit, spend, youtube } from './source.js';
 
 const MAX_IMAGE_BYTES = 200_000; // hqdefault is ~10-40 KB; anything bigger is unexpected
 
-// ids: up to 20 video IDs. Returns the same shape as scoreItems.
+// ids: up to 10 video IDs. Returns the same shape as scoreItems.
 export async function scoreShorts(env, ctx, profile, ids) {
   const items = ids.map((id) => ({ id }));
   return scoreItems(env, ctx, profile, items, { shorts: true, prepare: (missing) => withDetails(env, missing) });
 }
 
-// Adds text and thumbnail to each Short. Drops Shorts with no details
-// (deleted, private, or the lookup failed); they stay unscored.
+// Adds text, thumbnail and frames to each Short. Drops Shorts with no
+// details (deleted, private, or the lookup failed); they stay unscored.
 async function withDetails(env, items) {
   if (!env.YOUTUBE_API_KEY) {
     console.error('YOUTUBE_API_KEY is not set, so Shorts can\'t be looked up');
@@ -42,17 +46,22 @@ async function withDetails(env, items) {
   }
   const byId = new Map((data.items || []).map((v) => [v.id, v]));
   const found = items.filter((item) => byId.has(item.id));
-  const images = await Promise.all(found.map((item) => thumbnail(env, item.id)));
-  const ready = found.map((item, n) => ({ id: item.id, ...shortFromVideo(byId.get(item.id)), image: images[n] }));
-  console.log(JSON.stringify({ shortsLookedUp: items.length, found: ready.length, withImage: images.filter(Boolean).length }));
+  const ready = await Promise.all(
+    found.map(async (item) => {
+      const [image, ...frames] = await Promise.all(['hqdefault', ...SHORTS_FRAMES].map((name) => fetchImage(env, item.id, name)));
+      // Frames only go with a thumbnail; missing frames are just left out.
+      return { id: item.id, ...shortFromVideo(byId.get(item.id)), image, frames: image ? frames.filter(Boolean) : [] };
+    }),
+  );
+  console.log(JSON.stringify({ shortsLookedUp: items.length, found: ready.length, withImage: ready.filter((r) => r.image).length }));
   return ready.filter((item) => item.title); // a Short needs at least a title to be judged
 }
 
 // { mediaType, data (base64) } or null. A missing image just means the
-// Short is scored on its text.
-async function thumbnail(env, id) {
+// Short is scored on what's left.
+async function fetchImage(env, id, name) {
   try {
-    const url = env.THUMBNAIL_BASE ? `${env.THUMBNAIL_BASE}/${id}.jpg` : shortsThumbnailUrl(id); // override only for offline tests
+    const url = env.THUMBNAIL_BASE ? `${env.THUMBNAIL_BASE}/${id}_${name}.jpg` : shortsImageUrl(id, name); // override only for offline tests
     const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
     if (!response.ok) return null;
     const mediaType = (response.headers.get('content-type') || '').split(';')[0].trim();

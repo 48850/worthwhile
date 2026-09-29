@@ -37,8 +37,9 @@ import {
   buildRequest,
   buildShortsRequest,
   parseScores,
+  SHORTS_FRAMES,
   shortFromVideo,
-  shortsThumbnailUrl,
+  shortsImageUrl,
   verdictFor,
 } from '../shared/prompt.js';
 
@@ -296,7 +297,11 @@ async function addShortDetails(rows, { images }) {
         return;
       }
       Object.assign(row, shortFromVideo(v));
-      if (images) row.image = await thumbnail(row.videoId);
+      if (images) {
+        const [thumb, ...frames] = await Promise.all(['hqdefault', ...SHORTS_FRAMES].map((name) => fetchImage(row.videoId, name)));
+        row.image = thumb;
+        row.frames = thumb ? frames.filter(Boolean) : [];
+      }
     }),
   );
   if (missing) console.warn(`${missing} Short(s) not found on YouTube (deleted or private): scored from the CSV's title and channel.`);
@@ -308,9 +313,9 @@ async function addShortDetails(rows, { images }) {
   if (untitled.length) console.warn(`Left out ${untitled.length} Short(s) with no title: rows ${untitled.map((row) => row.id).join(', ')}`);
 }
 
-async function thumbnail(videoId) {
+async function fetchImage(videoId, name) {
   try {
-    const response = await fetch(shortsThumbnailUrl(videoId));
+    const response = await fetch(shortsImageUrl(videoId, name));
     const mediaType = (response.headers.get('content-type') || '').split(';')[0].trim();
     if (!response.ok || mediaType !== 'image/jpeg') return null;
     return { mediaType, data: Buffer.from(await response.arrayBuffer()).toString('base64') };

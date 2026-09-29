@@ -18,11 +18,14 @@ const DEFAULT_SETTINGS = {
   rule: 'bait', // 'bait': hide clear bait only (default). 'strict': the original rule, uses strictness.
   strictness: 2, // Strict rule only: 1 (lenient) to 5 (strict). 2 passed the M1 holdout test.
   shortsLabels: false, // label bait Shorts (never skips); off by default
-  // Remove clear bait from YouTube's list of upcoming Shorts, so it never
-  // appears (bait score >= shortsRemoveLevel). 8 hid none of 40 good Shorts
-  // in testing (2026-09-26); 6 hid about 1 in 6.
+  // Remove bait from YouTube's list of upcoming Shorts, so it never appears
+  // (bait score >= shortsRemoveLevel). Tested 2026-09-30 on 85 labelled
+  // Shorts with frames and "what": 6 removed ~80% of bait and ~1 in 9 good
+  // Shorts; 7 ~55% and ~1 in 13; 8 ~25% and ~1 in 40. Shorts are an endless
+  // stream, so a good Short removed costs little; bait shown is what gets
+  // noticed. Hence 6.
   shortsRemove: true,
-  shortsRemoveLevel: 8,
+  shortsRemoveLevel: 6,
   hideShortsShelf: true, // hide the Shorts shelf on the home page: titles too thin to score, mostly slop
   hiddenChannels: [], // channel names hidden outright by "Hide channel", no model involved
   collectShorts: false, // record Shorts as the user swipes, to build a labelled test set

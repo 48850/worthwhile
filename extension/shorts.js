@@ -5,12 +5,16 @@
 // 1. Remove clear bait before it appears ("Remove clear bait from Shorts",
 //    on by default). When YouTube fetches its next list of upcoming Shorts,
 //    shorts-main.js holds it back briefly and asks which to take out. The
-//    list is scored (/score-shorts: text plus thumbnail) and every Short
-//    with a bait score of at least shortsRemoveLevel is named. YouTube then
-//    gets the list without them, so they never show. Nothing is clicked on
-//    the user's account.
-//    Failure rule: whatever isn't scored within ANSWER_WITHIN_MS stays in
-//    the list, and so does the Short on screen.
+//    list is scored (/score-shorts: text, thumbnail and three frames) and
+//    every Short with a bait score of at least shortsRemoveLevel is named.
+//    YouTube then gets the list without them, so they never show. Nothing
+//    is clicked on the user's account.
+//    How long YouTube is held depends on the user's pace (answerWithin):
+//    scoring takes ~5-7 s, and YouTube asks for the next list a Short or two
+//    before it's needed, so a slow swiper can wait for every verdict while a
+//    fast one gets the list after ~2 s with whatever is scored by then.
+//    Failure rule: whatever isn't scored in time stays in the list, and so
+//    does the Short on screen.
 // 2. Label bait ("Label bait in Shorts", off by default): a small label on
 //    a Short that fails the filter but is still in the list.
 // 3. Collect Shorts (testing): records each Short swiped to (ID, title,
@@ -19,8 +23,13 @@
 //    options page copies them as CSV. Works with the filter on or off.
 
 (() => {
-  const ANSWER_WITHIN_MS = 3000; // shorts-main.js gives up at 3.5 s and removes nothing
-  const SCORE_BATCH = 20; // the Worker's limit per /score-shorts request
+  // How long to wait for verdicts before answering (shorts-main.js gives up
+  // at 7 s and removes nothing): 60% of the user's recent time per Short,
+  // between these bounds; ANSWER_DEFAULT_MS until there's a pace to go by.
+  const ANSWER_MIN_MS = 2000;
+  const ANSWER_MAX_MS = 6500;
+  const ANSWER_DEFAULT_MS = 4000;
+  const SCORE_BATCH = 10; // the Worker's limit per /score-shorts request
   const MAX_COLLECTED = 500;
   const ID = /^[\w-]{11}$/;
 
@@ -39,6 +48,7 @@
   const FAST_SKIPS = 5;
   let arrivedAt = 0;
   let fastSkips = 0;
+  const recentDwells = []; // ms spent on each of the last few Shorts, for answerWithin()
 
   // ---------------------------------------------------------------------------
   // Messages from shorts-main.js (page messages are untrusted: check shapes)
@@ -78,12 +88,20 @@
     let remove = [];
     if (removalOn()) {
       const scored = Promise.all(requestScores(ids));
-      await Promise.race([scored, wwSleep(ANSWER_WITHIN_MS)]);
+      await Promise.race([scored, wwSleep(answerWithin())]);
       remove = ids.filter((id) => id !== currentId && scores.get(id)?.bait >= settings.shortsRemoveLevel);
     } else {
       requestScores(ids); // still score them, for the label
     }
     window.postMessage({ source: 'worthwhile-extension', type: 'shorts-remove', requestId, remove }, location.origin);
+  }
+
+  // The user's pace: the median of the last few Shorts' on-screen times.
+  function answerWithin() {
+    if (recentDwells.length < 2) return ANSWER_DEFAULT_MS;
+    const sorted = [...recentDwells].sort((a, b) => a - b);
+    const pace = sorted[Math.floor(sorted.length / 2)];
+    return Math.min(ANSWER_MAX_MS, Math.max(ANSWER_MIN_MS, Math.round(pace * 0.6)));
   }
 
   // ---------------------------------------------------------------------------
@@ -146,6 +164,10 @@
     const id = /^\/shorts\/([\w-]{11})/.exec(location.pathname)?.[1] || null;
     if (id === currentId) return;
     const now = Date.now();
+    if (currentId && id) {
+      recentDwells.push(now - arrivedAt); // time on the Short just left
+      if (recentDwells.length > 5) recentDwells.shift();
+    }
     fastSkips = currentId && id && now - arrivedAt < FAST_SKIP_MS ? fastSkips + 1 : 0;
     if (fastSkips >= FAST_SKIPS) {
       fastSkips = 0;

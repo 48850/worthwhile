@@ -29,7 +29,10 @@
   const BATCH_MAX = 40; // after that, up to this many per request (the Worker accepts 60)
   const MAX_PARALLEL = 3; // requests at once
   const SCAN_DELAY_MS = 50; // cards stay invisible while waiting, so read them quickly
-  const REVEAL_AFTER_MS = 1500; // show a card after this long even if it isn't scored yet
+  // Show a card after this long even if it isn't scored yet. The first
+  // screen's verdicts take ~1.5-2 s (the Worker scores FIRST_BATCH in two
+  // parallel batches of 5); 1.5 s let bait slip onto the first screen.
+  const REVEAL_AFTER_MS = 2500;
   const RESCORE_DELAY_MS = 1200; // let the user finish editing settings before re-scoring
   const FAIL_OPEN_MS = 10000; // no readable card this long after cards appear: switch off
   const WORTH_MAX = 6; // "Worth your time" row

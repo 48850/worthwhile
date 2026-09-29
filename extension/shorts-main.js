@@ -22,7 +22,7 @@
 
 (() => {
   const SEQUENCE_PATH = '/youtubei/v1/reel/reel_watch_sequence';
-  const HOLD_MS = 3500; // the longest YouTube's next list is held back; shorts.js answers sooner
+  const HOLD_MS = 7000; // the longest YouTube's next list is held back; shorts.js answers sooner (2-6.5 s, by pace)
   const MIN_KEPT = 2; // never leave YouTube a list shorter than this
   const originalFetch = window.fetch;
 

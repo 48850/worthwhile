@@ -10,7 +10,17 @@
 // Privacy: logs contain counts only, never titles or video IDs.
 
 import Anthropic from '@anthropic-ai/sdk';
-import { BATCH_SIZE, SHORTS_BATCH_SIZE, buildRequest, buildShortsRequest, cacheFingerprint, parseScores, verdictFor } from '../../shared/prompt.js';
+import {
+  BATCH_SIZE,
+  FAST_BATCH_SIZE,
+  FAST_REQUEST,
+  SHORTS_BATCH_SIZE,
+  buildRequest,
+  buildShortsRequest,
+  cacheFingerprint,
+  parseScores,
+  verdictFor,
+} from '../../shared/prompt.js';
 
 const CACHE_SECONDS = 7 * 24 * 60 * 60;
 
@@ -103,7 +113,9 @@ async function scoreWithModel(env, profile, items, { shorts = false } = {}) {
     timeout: 25_000, // ms
   });
 
-  const size = shorts ? SHORTS_BATCH_SIZE : BATCH_SIZE;
+  // A small feed request is the first screen: score it in smaller parallel
+  // batches so its verdicts arrive before the cards are revealed anyway.
+  const size = shorts ? SHORTS_BATCH_SIZE : items.length <= FAST_REQUEST ? FAST_BATCH_SIZE : BATCH_SIZE;
   const build = shorts ? buildShortsRequest : buildRequest;
   const batches = [];
   for (let i = 0; i < items.length; i += size) batches.push(items.slice(i, i + size));

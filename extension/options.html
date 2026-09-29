@@ -55,20 +55,21 @@
           <p class="hint">Shorts titles are too thin to judge, and the shelf is where most of the slop is.</p>
           <label class="check">
             <input id="shorts-remove" type="checkbox" />
-            Remove clear bait from Shorts, so it never appears
+            Remove bait from Shorts, so it never appears
           </label>
           <div class="row" id="shorts-level-row">
             <label for="shorts-remove-level">Remove Shorts with a bait score of at least</label>
             <select id="shorts-remove-level">
-              <option value="8">8: the clearest bait only (recommended)</option>
-              <option value="7">7</option>
-              <option value="6">6: all bait (also removes more good Shorts)</option>
+              <option value="6">6: most bait (recommended)</option>
+              <option value="7">7: fewer mistakes, less bait removed</option>
+              <option value="8">8: only the clearest bait</option>
             </select>
           </div>
           <p class="hint">
-            Each Short is judged from its thumbnail, title, channel and description before YouTube shows it. In testing, 8
-            removed none of 40 good Shorts; 6 removed about 1 in 6. The first few Shorts after opening YouTube fresh can't
-            be filtered. Nothing is done to your YouTube account.
+            Each Short is judged from its title, channel, description, thumbnail and three frames from later in it, before
+            YouTube shows it. In testing, 6 removed about 80% of bait and about 1 in 9 good Shorts; 8 removed about a
+            quarter of bait and about 1 in 40 good Shorts. The first few Shorts after opening YouTube fresh can't be
+            filtered. Nothing is done to your YouTube account.
           </p>
           <label class="check">
             <input id="shorts-labels" type="checkbox" />

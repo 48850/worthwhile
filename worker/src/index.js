@@ -24,7 +24,7 @@
 //
 // POST /score-shorts
 //   Authorization: Bearer <invite token>
-//   { "profile": { ...as above }, "ids": ["<11-char video ID>", ...] } (1 to 20)
+//   { "profile": { ...as above }, "ids": ["<11-char video ID>", ...] } (1 to 10)
 // → 200 same shape as /score. The Worker looks up each Short's details and
 //   thumbnail itself (worker/src/shorts.js).
 //
@@ -52,7 +52,7 @@ const LIMITS = {
   interests: 30,
   interest: 80,
   channels: 20, // per /source request
-  shorts: 20, // per /score-shorts request (one videos.list call, two model calls)
+  shorts: 10, // per /score-shorts request: 4 images each must stay under the free plan's 50 outside requests
 };
 
 export default {
