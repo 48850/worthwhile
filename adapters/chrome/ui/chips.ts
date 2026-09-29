@@ -1,12 +1,15 @@
-// extension/chips.js
+// adapters/chrome/ui/chips.ts
 //
 // The interests editor: one chip per interest with an x to remove it, and a
 // text box where Enter adds one. Used by both the toolbar popup and the
-// options page. Saves straight to chrome.storage.sync, and redraws whenever
+// options page. Saves straight to the settings store, and redraws whenever
 // the interests change anywhere (so the popup and options page stay in step).
 // Content scripts see the change too and re-score the feed.
+// Ported unchanged from extension/chips.js.
 
-function mountInterestChips(container) {
+import { SETTINGS_LIMITS, type Stores } from '../../../core/settings';
+
+export function mountInterestChips(container: HTMLElement, stores: Stores): { focus: () => void } {
   const list = document.createElement('div');
   list.className = 'chips';
   const input = document.createElement('input');
@@ -19,9 +22,9 @@ function mountInterestChips(container) {
   note.className = 'chips-note';
   container.replaceChildren(list, input, note);
 
-  let interests = [];
+  let interests: string[] = [];
 
-  function draw() {
+  function draw(): void {
     list.replaceChildren(
       ...interests.map((name) => {
         const chip = document.createElement('span');
@@ -42,10 +45,10 @@ function mountInterestChips(container) {
     note.textContent = interests.length ? '' : 'No interests yet. Add a few topics you want more of.';
   }
 
-  function save(next) {
+  function save(next: string[]): Promise<void> {
     interests = next;
     draw();
-    return chrome.storage.sync.set({ interests: next });
+    return stores.settingsStore.set({ interests: next });
   }
 
   input.addEventListener('keydown', (event) => {
@@ -66,13 +69,13 @@ function mountInterestChips(container) {
     save([...interests, name]);
   });
 
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'sync' && changes.interests) {
-      interests = changes.interests.newValue || [];
+  stores.settingsStore.onChanged?.((changes) => {
+    if (changes.interests) {
+      interests = (changes.interests.newValue as string[]) || [];
       draw();
     }
   });
-  loadSettings().then((s) => {
+  stores.loadSettings().then((s) => {
     interests = s.interests;
     draw();
   });

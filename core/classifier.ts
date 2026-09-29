@@ -24,7 +24,7 @@ export interface ServerDeps {
   http: HttpClient;
   apiBaseUrl: string;
   /** Told the outcome of every request, so failing open is never silent. */
-  onStatus?: (status: ServerStatus) => Promise<void> | void;
+  onStatus?: (status: ServerStatus) => unknown;
 }
 
 /**

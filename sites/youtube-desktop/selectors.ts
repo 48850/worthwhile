@@ -1,16 +1,20 @@
-// extension/selectors.js
+// sites/youtube-desktop/selectors.ts
 //
-// Everything that depends on YouTube's page structure lives in this file:
-// CSS selectors, the text formats YouTube uses, and the small functions that
-// read a video card. When YouTube changes its page, this is the file to fix.
-// Last checked live on 2026-09-23 (see CLAUDE.md, "YouTube DOM notes").
-// scripts/export-titles.console.js uses the same selectors: keep them in step.
-//
-// Loaded as a plain content script (no modules), so it defines globals that
-// the other content scripts use: SELECTORS, feedHidingCss, findCards,
-// readCard, cardOf, readWatchChannel.
+// Everything that depends on YouTube's desktop page structure lives in this
+// file: CSS selectors, the text formats YouTube uses, and the small
+// functions that read a video card. When YouTube changes its page, this is
+// the file to fix. Last checked live on 2026-09-23 (see CLAUDE.md, "YouTube
+// DOM notes"). scripts/export-titles.console.js uses the same selectors:
+// keep them in step.
+// (Moved unchanged from extension/selectors.js, with types added.)
 
-const SELECTORS = {
+export interface TextCandidate {
+  css: string;
+  /** Read this attribute instead of the element's text. */
+  attr?: string;
+}
+
+export const SELECTORS = {
   // The home feed. After in-app navigation YouTube keeps previously visited
   // pages in the DOM (hidden), so only search inside this.
   homeFeed: 'ytd-browse[page-subtype="home"]',
@@ -53,7 +57,7 @@ const SELECTORS = {
     { css: 'yt-lockup-metadata-view-model a[href*="/watch?v="]' }, // lockup: title link text
     { css: 'a#video-title-link', attr: 'title' }, // older layout
     { css: '#video-title' }, // older layout, text
-  ],
+  ] as TextCandidate[],
   channel: [
     // Lockup: the metadata is a run of text spans: channel, views, age.
     // Views and age spans carry an aria-label; the channel span doesn't.
@@ -62,12 +66,12 @@ const SELECTORS = {
     { css: 'yt-content-metadata-view-model span[role="text"]:not([aria-label])' }, // channel as plain text
     { css: 'ytd-channel-name #text' }, // older layout
     { css: 'a#avatar-link', attr: 'title' }, // older layout: channel avatar
-  ],
+  ] as TextCandidate[],
   duration: [
     { css: 'yt-thumbnail-badge-view-model badge-shape' }, // lockup thumbnail badge, e.g. "29:45"
     { css: 'ytd-thumbnail-overlay-time-status-renderer badge-shape' }, // older layout
     { css: 'ytd-thumbnail-overlay-time-status-renderer #text' }, // older layout, older markup
-  ],
+  ] as TextCandidate[],
 
   // Text that is card metadata, never a channel name: viewer and view
   // counts ("12K watching", "1.2M views", "790k"), ages ("4 days ago",
@@ -120,9 +124,10 @@ const SELECTORS = {
   // /shorts page. There is one player element, reused as you swipe; the
   // URL (/shorts/<id>) and the page title change with each Short.
   // A Short's title and channel are NOT read from the page (its text lags a
-  // Short behind on swipes): shorts-main.js asks YouTube's player
-  // (#shorts-player, the one selector kept there) for them with the ID.
+  // Short behind on swipes): shorts-page.ts asks YouTube's player for them.
   shortsPlayer: 'ytd-shorts ytd-reel-video-renderer', // the "Worthwhile: bait" label is placed over this
+  // YouTube's Shorts player element, which answers getVideoData() (page world only).
+  shortsPlayerApi: '#shorts-player',
 
   // The queue of upcoming Shorts (checked live 2026-09-25, signed out): the
   // player sits in numbered slots div#0..#16; slot N holds the Nth Short
@@ -141,22 +146,27 @@ const SELECTORS = {
   notInterestedLabel: /^not interested$/i,
 };
 
+// YouTube's own network endpoint for the list of upcoming Shorts, and the
+// page global that carries the first list on a full page load.
+export const SHORTS_SEQUENCE_PATH = '/youtubei/v1/reel/reel_watch_sequence';
+export const SHORTS_INITIAL_GLOBAL = 'ytInitialReelWatchSequenceResponse';
+
 // CSS for filtering YouTube's own home grid in place while the filter is on
 // (html.ww-on). It's built here so that no YouTube selector lives anywhere
-// else; content.js injects it and marks each card with data-ww:
+// else; feed.ts injects it and marks each card with data-ww:
 //   (no mark) not seen yet   -> invisible, keeping its slot (so bait never flashes)
 //   "show"                   -> visible, as YouTube placed it
 //   "hide"                   -> removed; later cards move up into its slot
-// content.js marks every card "show" after at most 1.5 s, scored or not.
+// feed.ts marks every card "show" after at most 1.5 s, scored or not.
 // Every card gets the same margins (0 left, one gap right): YouTube sets
 // margins by a card's original column, which goes wrong once cards move.
 // Checked live: identical layout with nothing hidden, aligned when hiding.
 //
 // Also here: the "Wrong call" button's hover reveal, the /watch sidebar rules
-// (cards marked data-ww-verdict by watch.js), and [data-ww-marking], which
+// (cards marked data-ww-verdict by watch.ts), and [data-ww-marking], which
 // briefly gives a hidden card a real size, off screen, while its ⋮ menu is
-// used (notinterested.js).
-function feedHidingCss() {
+// used (notinterested.ts).
+export function feedHidingCss(): string {
   const items = `${SELECTORS.homeFeed} ${SELECTORS.gridItems}`;
   const card = `html.ww-on ${items} > ${SELECTORS.gridCard}`;
   return [
@@ -176,10 +186,10 @@ function feedHidingCss() {
 // Our UI's --ww-* variables, read from YouTube's own (see cssVars), so it
 // matches YouTube's colours, column count and spacing. styles.css uses only
 // the --ww-* names.
-function themeCss() {
+function themeCss(): string[] {
   const V = SELECTORS.cssVars;
-  const chain = (names, fallback) => names.reduceRight((inner, name) => `var(${name}, ${inner})`, fallback);
-  const colours = (text, textSecondary, layer) =>
+  const chain = (names: string[], fallback: string) => names.reduceRight((inner, name) => `var(${name}, ${inner})`, fallback);
+  const colours = (text: string, textSecondary: string, layer: string) =>
     `--ww-text: ${chain(V.text, text)}; --ww-text-2: ${chain(V.textSecondary, textSecondary)}; --ww-layer: ${chain(V.layer, layer)};`;
   return [
     `#ww-feed { ${colours('#0f0f0f', '#606060', 'rgba(0, 0, 0, 0.05)')}` +
@@ -190,15 +200,21 @@ function themeCss() {
 }
 
 // The outermost card element containing el (e.g. a card's own link).
-function cardOf(el) {
+export function cardOf(el: Element): Element | null {
   let card = el.closest(SELECTORS.card);
   while (card && card.parentElement?.closest(SELECTORS.card)) card = card.parentElement.closest(SELECTORS.card);
   return card;
 }
 
+export interface WatchChannel {
+  id?: string;
+  handle?: string;
+  name: string;
+}
+
 // The channel of the video on a /watch page: { id: "UC..." } or
 // { handle: "@name" }, plus name when shown. null if not found.
-function readWatchChannel() {
+export function readWatchChannel(): WatchChannel | null {
   const name = (document.querySelector(SELECTORS.watchChannelName)?.textContent || '').trim();
   for (const css of SELECTORS.watchChannel) {
     const href = document.querySelector(css)?.getAttribute('href') || '';
@@ -211,7 +227,8 @@ function readWatchChannel() {
 }
 
 // The Shorts queue, in slot order: [videoId or null, ...].
-function readShortsQueue() {
+// (Unused since the network list replaced the DOM queue: see the audit.)
+export function readShortsQueue(): (string | null)[] {
   return [...document.querySelectorAll(SELECTORS.shortsQueueSlot)].map((slot) => {
     const style = slot.querySelector(SELECTORS.shortsQueueThumb)?.getAttribute('style') || '';
     return /\/vi(?:_webp)?\/([\w-]{11})\//.exec(style)?.[1] || null;
@@ -220,18 +237,27 @@ function readShortsQueue() {
 
 // Cards inside root, in page order. A wrapper and the card inside it both
 // match SELECTORS.card, so only the outermost is kept.
-function findCards(root) {
-  return [...root.querySelectorAll(SELECTORS.card)].filter((el) => !el.parentElement.closest(SELECTORS.card));
+export function findCards(root: ParentNode): Element[] {
+  return [...root.querySelectorAll(SELECTORS.card)].filter((el) => !el.parentElement!.closest(SELECTORS.card));
+}
+
+export interface DesktopCard {
+  videoId: string;
+  title: string;
+  channel: string;
+  duration: string;
+  meta: string;
+  link: Element;
 }
 
 // { videoId, title, channel, duration, meta, link } for a plain video card, or null
 // for anything else (Shorts, ads, mixes, playlists). title is '' while
 // YouTube is still filling the card in. link is YouTube's own <a> element.
-function readCard(card) {
+export function readCard(card: Element): DesktopCard | null {
   if (card.closest('[hidden]') || card.querySelector(SELECTORS.ad)) return null;
   const link = card.querySelector(SELECTORS.watchLink);
   if (!link) return null;
-  const url = new URL(link.getAttribute('href'), location.origin);
+  const url = new URL(link.getAttribute('href')!, location.origin);
   if (url.searchParams.has('list')) return null; // mix or playlist
   const videoId = url.searchParams.get('v');
   if (!videoId || !/^[\w-]{11}$/.test(videoId)) return null;
@@ -247,9 +273,9 @@ function readCard(card) {
 
 // "1.2M views • 3 days ago", as the card shows it. Some layouts show a bare
 // "1.9m" for views, so that gets " views" added.
-function readMeta(card) {
+function readMeta(card: Element): string {
   for (const css of SELECTORS.meta) {
-    const parts = [...card.querySelectorAll(css)].map((el) => el.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const parts = [...card.querySelectorAll(css)].map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
     if (parts.length) return parts.map((p) => (/^[\d.,]+\s?[kmb]?$/i.test(p) ? `${p.toUpperCase()} views` : p)).join(' • ');
   }
   return '';
@@ -257,7 +283,7 @@ function readMeta(card) {
 
 // First usable value from a candidate list. Checks every element a candidate
 // matches (not just the first), skipping values that fail isUsable.
-function pickText(card, candidates, isUsable = () => true) {
+function pickText(card: Element, candidates: TextCandidate[], isUsable: (value: string) => boolean = () => true): string {
   for (const c of candidates) {
     for (const el of card.querySelectorAll(c.css)) {
       const value = ((c.attr ? el.getAttribute(c.attr) : el.textContent) || '').replace(/\s+/g, ' ').trim();

@@ -1,12 +1,12 @@
-/* extension/styles.css
+/* sites/youtube-desktop/styles.css
  *
  * Styles for Worthwhile's own elements on YouTube:
  *   #ww-feed   the slim bar above YouTube's home grid: status, the Hidden
  *              drawer and the "Worth your time" row
  *   .ww-wrong  the "Wrong call" button on YouTube's cards (shown on hover)
  *   #ww-shorts-label  the "Worthwhile: bait" label on Shorts
- *   #ww-behaviour     the rating question and the fatigue offer (behaviour.js)
- * YouTube's own grid is filtered in place by CSS generated in selectors.js,
+ *   #ww-behaviour     the rating question and the fatigue offer (behaviour.ts)
+ * YouTube's own grid is filtered in place by CSS generated in selectors.ts,
  * which is also where every YouTube selector and variable name lives.
  * Colours and grid geometry come from --ww-* variables set there, so light and
  * dark mode match YouTube. Tiles copy YouTube's cards (measured live
@@ -233,7 +233,7 @@ html.ww-on #ww-feed {
 }
 
 /* "Wrong call" and "Hide channel" on YouTube's cards. Hidden until the card
-   is hovered (the hover rule is generated in selectors.js). Top left, because
+   is hovered (the hover rule is generated in selectors.ts). Top left, because
    YouTube's hover preview puts its own buttons top right. */
 .ww-actions {
   position: absolute;
@@ -259,7 +259,7 @@ html.ww-on #ww-feed {
   background: rgba(0, 0, 0, 0.9);
 }
 
-/* "Worthwhile: bait" label on Shorts (shorts.js, only when switched on) */
+/* "Worthwhile: bait" label on Shorts (shorts.ts, only when switched on) */
 #ww-shorts-label {
   position: fixed;
   z-index: 2000;
@@ -271,7 +271,7 @@ html.ww-on #ww-feed {
   pointer-events: none;
 }
 
-/* Rating question and fatigue offer (behaviour.js): a small card, top right.
+/* Rating question and fatigue offer (behaviour.ts): a small card, top right.
    A fixed dark card, so it reads the same on YouTube's light and dark themes. */
 #ww-behaviour {
   position: fixed;
