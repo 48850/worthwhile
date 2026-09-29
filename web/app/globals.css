@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+/*
+ * worthwhile: "FOCUS".
+ * True black, white type, one luminous gold for what's in focus (and the
+ * primary CTA only), slate for everything out of focus.
+ */
+@theme {
+  --color-ink: #0a0a0b;
+  --color-ink-raised: #121214;
+  --color-line: #1d1e22;
+  --color-gold: #f5c542;
+  --color-slate: #7c818b;
+
+  /* A lens settling, not a spring. */
+  --ease-lens: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Geist, self-hosted by next/font (variables set on <html> in layout.tsx). */
+@theme inline {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background: var(--color-ink);
+}
+
+body {
+  background: var(--color-ink);
+  color: #fff;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--color-gold);
+  color: var(--color-ink);
+}
+
+:focus-visible {
+  outline: 1px solid var(--color-gold);
+  outline-offset: 3px;
+}
+
+/* Display type: large, tight. */
+.display {
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 0.95;
+}
+
+/* Hairline divider that fades at both ends. */
+.hairline {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-line) 20%, var(--color-line) 80%, transparent);
+}
+
+/* FAQ: native details, styled. */
+details > summary {
+  list-style: none;
+}
+details > summary::-webkit-details-marker {
+  display: none;
+}
