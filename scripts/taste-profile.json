@@ -1,0 +1,60 @@
+{
+  "interests": [
+    {
+      "topic": "chess",
+      "weight": 3,
+      "depth": "intermediate"
+    },
+    {
+      "topic": "mathematics",
+      "weight": 3,
+      "depth": "intermediate"
+    },
+    {
+      "topic": "science",
+      "weight": 3,
+      "depth": "intermediate"
+    },
+    {
+      "topic": "literature",
+      "weight": 3,
+      "depth": "intermediate"
+    },
+    {
+      "topic": "theatre",
+      "weight": 3,
+      "depth": "intermediate"
+    },
+    {
+      "topic": "philosophy",
+      "weight": 3,
+      "depth": "intermediate"
+    },
+    {
+      "topic": "filmmaking",
+      "weight": 3,
+      "depth": "intermediate"
+    },
+    {
+      "topic": "independent watchmaking",
+      "weight": 3,
+      "depth": "intermediate"
+    }
+  ],
+  "always_hide": [
+    "ragebait",
+    "drama and gossip",
+    "reaction videos",
+    "clickbait titles that overpromise",
+    "AI-generated slop",
+    "hustle/motivation/get-rich content",
+    "generic top-10 lists",
+    "mainstream hype"
+  ],
+  "shorts_policy": {
+    "allow": [],
+    "hide": []
+  },
+  "quality_bar": "Worthwhile means I come away understanding, knowing or appreciating something I didn't before. Prefer depth over hype: explanations, analysis, craft, real expertise, full performances. Prefer independent and niche creators over mass-market channels. Humour is fine if it's clever. Hide ragebait, drama and gossip, reaction videos, clickbait titles that overpromise, AI-generated slop, hustle/motivation/get-rich content, generic top-10 lists, and mainstream hype.",
+  "respected_creators": []
+}

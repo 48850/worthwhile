@@ -16,5 +16,5 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["core", "sites", "adapters", "contracts", "tests"]
+  "include": ["core", "sites", "adapters", "contracts", "shared", "tests", "scripts/**/*.ts"]
 }
