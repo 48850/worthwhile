@@ -207,9 +207,11 @@ async function runModel(key: string, rows: Row[], sets: EvalSet[], profile: Prep
 
     if (set.labels === 'verdict') {
       // End-to-end at every Range, then the floor at the chosen Range.
-      const atRange = (rg: number, fl = floor) => agreement(scored, (r) => decide(r, profile, rg, fl).action === (r.label === 'hide' ? 'cut' : 'show'));
-      console.log(`   Range      ${RANGES.map((rg) => rg.toFixed(2).padStart(6)).join('')}`);
-      console.log(`   Agreement  ${RANGES.map((rg) => pct(atRange(rg)).padStart(6)).join('')}`);
+      const atRange = (rg: number, fl = floor, maxAppeal?: number) =>
+        agreement(scored, (r) => decide(r, profile, rg, fl, maxAppeal).action === (r.label === 'hide' ? 'cut' : 'show'));
+      console.log(`   Range           ${RANGES.map((rg) => rg.toFixed(2).padStart(6)).join('')}`);
+      console.log(`   Agreement       ${RANGES.map((rg) => pct(atRange(rg)).padStart(6)).join('')}`);
+      console.log(`   (relevance only ${RANGES.map((rg) => pct(atRange(rg, floor, 0)).padStart(6)).join('')})`);
       console.log(`   Floor at Range ${range}: ${FLOORS.map((fl) => `${fl} → ${pct(atRange(range, fl))}`).join(',  ')}`);
       const here = atRange(range);
       console.log(`   At Range ${range}, floor ${floor}: ${here.agree}/${here.total} = ${pct(here)}${here.agree / here.total < TARGET ? '  (under 85%)' : ''}`);
@@ -252,7 +254,7 @@ async function runModel(key: string, rows: Row[], sets: EvalSet[], profile: Prep
         const c = r.c!;
         console.log(`   - row ${r.n}: you ${r.label}, we ${v.action === 'cut' ? 'cut' : 'show'}${r.category ? ` [${r.category}]` : ''}`);
         console.log(`     "${r.title}" (${r.channel})`);
-        console.log(`     q ${c.quality.toFixed(1)}  junk ${c.junk ?? 'none'}  ${c.format}  ${c.topics.join('/')}  ${c.depth}  rel ${v.relevance.toFixed(2)}  tags: ${c.tags.join(', ')}`);
+        console.log(`     q ${c.quality.toFixed(1)}  junk ${c.junk ?? 'none'}  ${c.format}  ${c.topics.join('/')}  ${c.depth}  rel ${v.relevance.toFixed(2)}  fit ${v.fit.toFixed(2)}  tags: ${c.tags.join(', ')}`);
         console.log(`     ${whyLine(v, c)}`);
       }
     }
@@ -279,8 +281,9 @@ async function runModel(key: string, rows: Row[], sets: EvalSet[], profile: Prep
   return summary;
 }
 
-function decide(r: Row, profile: PreparedProfile, rg: number, fl: number): ItemVerdict {
-  return judge({ item: { title: r.title, channel: r.channel, isShort: r.set.kind === 'short' }, classification: r.c, profile, range: rg, floor: fl });
+// maxAppeal 0: Range moves relevance alone (the brief's first wording), for comparison.
+function decide(r: Row, profile: PreparedProfile, rg: number, fl: number, maxAppeal?: number): ItemVerdict {
+  return judge({ item: { title: r.title, channel: r.channel, isShort: r.set.kind === 'short' }, classification: r.c, profile, range: rg, floor: fl, maxAppeal });
 }
 
 function printComparison(summaries: Summary[]) {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { VideoClassification } from '../contracts/classification';
 import type { TasteProfile } from '../contracts/taste-profile';
 import { TOPIC_IDS, TOPICS } from '../contracts/topics';
-import { DEFAULT_RANGE, judge, prepareProfile, QUALITY_FLOOR, relevance, relevanceNeeded, whyLine } from '../core/relevance';
+import { appeal, DEFAULT_RANGE, fitNeeded, judge, MAX_APPEAL, prepareProfile, QUALITY_FLOOR, relevance, whyLine } from '../core/relevance';
 
 const taste = (overrides: Partial<TasteProfile> = {}): TasteProfile => ({
   interests: [
@@ -42,14 +42,28 @@ describe('topics contract', () => {
 });
 
 describe('Range', () => {
-  it('needs the most relevance at "Only my interests" and none at "Anything good"', () => {
-    expect(relevanceNeeded(0)).toBeCloseTo(0.6);
-    expect(relevanceNeeded(1)).toBe(0);
-    expect(relevanceNeeded(5)).toBe(0); // clamped
+  it('needs the most fit at "Only my interests" and none at "Anything good"', () => {
+    expect(fitNeeded(0)).toBeCloseTo(0.6);
+    expect(fitNeeded(1)).toBe(0);
+    expect(fitNeeded(5)).toBe(0); // clamped
+  });
+
+  it('lets in videos outside the interests by quality as Range slides right: excellent first, light last', () => {
+    const outside = (quality: number) => video({ topics: ['history'], depth: 'intermediate', quality });
+    const ranges = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
+    const firstShownAt = (quality: number) => ranges.find((r) => verdict(outside(quality), taste(), r).action === 'show')!;
+    expect(firstShownAt(1)).toBeGreaterThan(0); // never at "Only my interests"
+    expect(firstShownAt(0.9)).toBeLessThan(firstShownAt(0.7));
+    expect(firstShownAt(0.7)).toBeLessThan(firstShownAt(0.5));
+    expect(firstShownAt(0.5)).toBeGreaterThanOrEqual(0.9);
+    expect(verdict(outside(0.9), taste(), 0.5)).toMatchObject({ action: 'show', reason: 'good-enough' });
+    expect(verdict(outside(0.5), taste(), 1)).toMatchObject({ action: 'show', reason: 'good-enough' }); // not "in-range" with no interest
+    expect(appeal(1)).toBeCloseTo(MAX_APPEAL);
+    expect(appeal(QUALITY_FLOOR)).toBe(0);
   });
 
   it('shows a good video off the user\'s interests only towards "Anything good"', () => {
-    const cooking = video({ topics: ['food'], depth: 'intro', reason: 'A chef explains why bread rises.' });
+    const cooking = video({ topics: ['food'], depth: 'intro', quality: 0.6, reason: 'A chef explains why bread rises.' });
     expect(verdict(cooking, taste(), 0).action).toBe('cut');
     expect(verdict(cooking, taste(), 0).reason).toBe('off-range');
     expect(verdict(cooking, taste(), 1).action).toBe('show');

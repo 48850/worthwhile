@@ -6,11 +6,19 @@
 //   relevance  0-1: how squarely a video fits the user's interests (topic
 //              match, weighted by how much they want the interest and how
 //              close its depth is to theirs).
+//   fit        relevance, or for a video outside the user's interests, how
+//              good it is (appeal(): from 0 at the quality floor up to just
+//              under what Range 0 needs, so "Only my interests" stays that).
 //   Range      0-1, the user's one control. 0 = "Only my interests",
-//              1 = "Anything good". It moves the relevance needed to be
-//              shown, and nothing else.
+//              1 = "Anything good". It moves the fit needed to be shown, and
+//              nothing else. Sliding right first lets in the excellent from
+//              outside the user's interests, then the good, and at the end
+//              anything above the floor (light, funny, trending).
 //   quality    the floor is fixed at every Range: junk and anything below
 //              QUALITY_FLOOR never come back.
+// Why fit and not relevance alone: in the eval (2026-10-14) the user's
+// verdicts followed quality more than topic; good history, geography and
+// tech videos outside their saved interests were all "show". DECISIONS.md.
 //
 // The order, first that applies wins (judge()):
 //   1. a channel the user loves: shown (respected_creators: "never hidden");
@@ -18,8 +26,8 @@
 //      to wait first);
 //   3. junk: cut;  4. below the quality floor: cut;
 //   5. one of the user's exclusions (or, for Shorts, shorts_policy.hide): cut;
-//   6. Shorts the user always wants (shorts_policy.allow), or relevance at
-//      least relevanceNeeded(range): shown;
+//   6. Shorts the user always wants (shorts_policy.allow), or fit at least
+//      fitNeeded(range): shown;
 //   7. otherwise: cut, as outside the Range.
 
 import type { VideoClassification } from '../contracts/classification';
@@ -40,14 +48,22 @@ import {
 export const QUALITY_FLOOR = 0.4;
 /** Where Range starts: near "Only my interests". */
 export const DEFAULT_RANGE = 0.25;
-/** The relevance needed at Range 0. At Range 1 it's 0: anything above the floor. */
-export const MAX_RELEVANCE_NEEDED = 0.6;
+/** The fit needed at Range 0. At Range 1 it's 0: anything above the floor. */
+export const MAX_FIT_NEEDED = 0.6;
+/** The most a video outside the user's interests can score on quality alone: just under MAX_FIT_NEEDED. */
+export const MAX_APPEAL = 0.55;
 
 const DEPTHS: InterestDepth[] = ['intro', 'intermediate', 'deep'];
 
-/** The relevance a video needs to be shown at this Range. */
-export function relevanceNeeded(range: number): number {
-  return MAX_RELEVANCE_NEEDED * (1 - Math.min(1, Math.max(0, range)));
+/** The fit a video needs to be shown at this Range. */
+export function fitNeeded(range: number): number {
+  return MAX_FIT_NEEDED * (1 - Math.min(1, Math.max(0, range)));
+}
+
+/** A video's fit on quality alone: 0 at the floor, maxAppeal at quality 1. */
+export function appeal(quality: number, floor = QUALITY_FLOOR, maxAppeal = MAX_APPEAL): number {
+  if (quality < floor || floor >= 1) return 0;
+  return (maxAppeal * (quality - floor)) / (1 - floor);
 }
 
 /** In the user's words, for the cut log and "why this is here". */
@@ -193,12 +209,23 @@ function weightFactor(weight: number): number {
 // The decision
 // ---------------------------------------------------------------------------
 
-export type VerdictReason = 'loved-creator' | 'unclassified' | 'junk' | 'below-floor' | 'excluded' | 'shorts-allowed' | 'in-range' | 'off-range';
+export type VerdictReason =
+  | 'loved-creator'
+  | 'unclassified'
+  | 'junk'
+  | 'below-floor'
+  | 'excluded'
+  | 'shorts-allowed'
+  | 'in-range' // on one of the user's interests
+  | 'good-enough' // outside their interests, but good enough for their Range
+  | 'off-range';
 
 export interface ItemVerdict {
   action: 'show' | 'cut';
   reason: VerdictReason;
   relevance: number;
+  /** max(relevance, appeal): what Range compares. */
+  fit: number;
   /** The exclusion or interest behind the decision, in the user's own words. */
   matched: string | null;
 }
@@ -208,27 +235,32 @@ export interface JudgeInput {
   classification: VideoClassification | null | undefined;
   profile: PreparedProfile;
   range: number;
-  /** Only the eval harness changes it (to choose QUALITY_FLOOR). */
+  /** Only the eval harness changes these (to choose QUALITY_FLOOR and MAX_APPEAL). */
   floor?: number;
+  maxAppeal?: number;
 }
 
-export function judge({ item, classification: c, profile, range, floor = QUALITY_FLOOR }: JudgeInput): ItemVerdict {
-  if (item.channel && profile.loved.has(channelKey(item.channel))) return { action: 'show', reason: 'loved-creator', relevance: 1, matched: item.channel };
-  if (!c) return { action: 'show', reason: 'unclassified', relevance: 0, matched: null };
-  if (c.junk) return { action: 'cut', reason: 'junk', relevance: 0, matched: null };
-  if (c.quality < floor) return { action: 'cut', reason: 'below-floor', relevance: 0, matched: null };
+export function judge({ item, classification: c, profile, range, floor = QUALITY_FLOOR, maxAppeal = MAX_APPEAL }: JudgeInput): ItemVerdict {
+  const none = { relevance: 0, fit: 0, matched: null };
+  if (item.channel && profile.loved.has(channelKey(item.channel))) return { action: 'show', reason: 'loved-creator', relevance: 1, fit: 1, matched: item.channel };
+  if (!c) return { action: 'show', reason: 'unclassified', ...none };
+  if (c.junk) return { action: 'cut', reason: 'junk', ...none };
+  if (c.quality < floor) return { action: 'cut', reason: 'below-floor', ...none };
 
   const exclusions = item.isShort ? [...profile.exclusions, ...profile.shortsHide] : profile.exclusions;
   const excludedBy = exclusions.find((e) => excludes(e, c, item));
-  if (excludedBy) return { action: 'cut', reason: 'excluded', relevance: 0, matched: excludedBy.term };
+  if (excludedBy) return { action: 'cut', reason: 'excluded', ...none, matched: excludedBy.term };
 
   const rel = relevance(c, item, profile);
+  const scores = { relevance: rel.score, fit: Math.max(rel.score, appeal(c.quality, floor, maxAppeal)) };
   if (item.isShort) {
     const allowedBy = profile.shortsAllow.find((e) => excludes(e, c, item));
-    if (allowedBy) return { action: 'show', reason: 'shorts-allowed', relevance: rel.score, matched: allowedBy.term };
+    if (allowedBy) return { action: 'show', reason: 'shorts-allowed', ...scores, matched: allowedBy.term };
   }
-  if (rel.score >= relevanceNeeded(range)) return { action: 'show', reason: 'in-range', relevance: rel.score, matched: rel.interest?.topic ?? null };
-  return { action: 'cut', reason: 'off-range', relevance: rel.score, matched: rel.interest?.topic ?? null };
+  const needed = fitNeeded(range);
+  if (rel.score > 0 && rel.score >= needed) return { action: 'show', reason: 'in-range', ...scores, matched: rel.interest?.topic ?? null };
+  if (scores.fit >= needed) return { action: 'show', reason: 'good-enough', ...scores, matched: null };
+  return { action: 'cut', reason: 'off-range', ...scores, matched: rel.interest?.topic ?? null };
 }
 
 // Whether an exclusion (or a Shorts allow/hide term) describes this video.
@@ -256,7 +288,9 @@ export function whyLine(verdict: ItemVerdict, c: VideoClassification | null | un
     case 'shorts-allowed':
       return `Shorts you always want (${verdict.matched}): ${what}`;
     case 'in-range':
-      return verdict.matched ? `${capitalise(verdict.matched)}: ${what}` : `Good, and inside your Range: ${what}`;
+      return `${capitalise(verdict.matched || 'your interests')}: ${what}`;
+    case 'good-enough':
+      return `Outside your interests, but good: ${what}`;
     case 'off-range':
       return `Outside your Range: ${what}`;
   }
