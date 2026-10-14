@@ -11,6 +11,7 @@
     "score-test": "node scripts/score-test.js",
     "build": "node scripts/check-boundaries.mjs && node scripts/build.mjs",
     "build:dev": "node scripts/check-boundaries.mjs && node scripts/build.mjs --dev",
+    "build:local": "node scripts/check-boundaries.mjs && node scripts/build.mjs --local",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "check:boundaries": "node scripts/check-boundaries.mjs"

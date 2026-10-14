@@ -69,6 +69,10 @@ the same filter (dist/ios/filter.js). The code is structured for both
   Parked separately: branch `wip/effectiveness` (scoring experiments, not
   ready) and the deployment switch-over (extension -> deployed Worker).
 - M5: not started. Wait for go-ahead after each milestone.
+- Phase 1 of the build brief (2026-10-14, branch `phase-1`): audit done,
+  the user's answers recorded in DECISIONS.md (the decisions file from now
+  on). Gates: Shorts 85% on a fresh holdout and 85% end-to-end agreement
+  before any extension interface work.
 
 ## Hard constraints
 - (Changed 2026-09-30 by the user: the old "plain JavaScript, no bundler"
@@ -738,8 +742,9 @@ Design rules that keep it cheap:
   environment variables through (CLOUDFLARE_INCLUDE_PROCESS_ENV), which is how
   ANTHROPIC_API_KEY reaches the local Worker. Don't create a .dev.vars file,
   or that pass-through stops. Wrangler prints env values as "(hidden)".
-- Extension: `npm run build` (or `npm run build:dev` to log analytics events
-  in the background worker's console), then chrome://extensions →
+- Extension: `npm run build` talks to the deployed Worker; `npm run build:local`
+  to the local one (`npm run dev`). `npm run build:dev` logs analytics events
+  in the background worker's console (add `-- --local` for the local Worker). Then chrome://extensions →
   Developer mode → Load unpacked → dist/chrome. After a rebuild, click the
   reload icon on its card, then reload YouTube. (Before 2026-09-30 it was the
   /extension folder, which no longer exists.)
