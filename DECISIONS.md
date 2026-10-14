@@ -5,6 +5,40 @@ it affects. Decisions before 2026-10-14 (M1 to the Chrome + iOS
 restructure) are in CLAUDE.md's "Decisions log" until Phase 1's doc
 clean-up moves them here.
 
+## 2026-10-14: First eval of classifier v2 (gates not met; stopped for the user)
+
+- **Range moves one threshold on "fit", not on relevance alone (needs the
+  user's OK: the brief says "relevance threshold only").** Fit is
+  relevance, or for a video outside the user's interests, how good it is
+  (0 at the quality floor, up to just under what Range 0 needs). So
+  "Only my interests" is unchanged, and sliding right lets in the
+  excellent from outside the interests first, then the good, then
+  anything above the floor. Why: the user's feed verdicts follow quality
+  more than topic. On the tuning set, relevance alone peaked at 81.7%
+  (good history, geography, tech and news videos outside the 8 saved
+  interests were all "show"); fit reached 91.7-93.3%.
+- Prompt v2.1 (commit 9ff17e5) was tuned on titles.csv, edge-cases.csv
+  and shorts-tuning.csv only, then run once on the holdouts.
+
+| v2.1                        | Haiku 4.5        | Haiku 5.5 (low, no thinking) |
+|-----------------------------|------------------|------------------------------|
+| Feed tuning, best Range     | 85.0% at 0.6     | 91.7% at 0.7                 |
+| Feed holdout, at that Range | 83.3% (25/30)    | 83.3% (25/30)                |
+| Shorts tuning, Range 1      | 83.1%            | 79.7%                        |
+| Shorts holdout, Range 1     | 80.8% (21/26)    | 65.4% (17/26)                |
+| Edge-case junk P / R        | 100% / 86.7%     | 100% / 100%                  |
+| Cost per 1,000 videos       | $0.61            | $0.08                        |
+
+  Haiku 5.5 medium effort (thinking on): feed 93.3%, Shorts 74.6% on
+  tuning, $0.11 per 1,000. Scores move by one or two rows between runs.
+- Both holdouts are now spent for v2.1. With 30 and 26 rows, each row is
+  3-4 points, so the gate needs a bigger, fresh set labelled by the user.
+- Open questions put to the user: whether clip channels reposting
+  podcasts and creators are junk (the brief says repost farms are; the
+  Shorts labels drafted in September said "show"), whether challenge and
+  stunt videos are junk or a personal exclusion, and whether Shorts get
+  their own Range (feed verdicts fit Range 0.6-0.7, Shorts verdicts fit 1).
+
 ## 2026-10-14: Phase 1 of the build brief (user's answers to the audit)
 
 ### Product and privacy

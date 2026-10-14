@@ -73,6 +73,12 @@ the same filter (dist/ios/filter.js). The code is structured for both
   the user's answers recorded in DECISIONS.md (the decisions file from now
   on). Gates: Shorts 85% on a fresh holdout and 85% end-to-end agreement
   before any extension interface work.
+  Classifier v2.1 + on-device relevance (shared/classify.ts,
+  core/relevance.ts) and the eval harness (`npm run eval`) are built.
+  First holdout run (2026-10-14): feed 83.3%, Shorts 80.8% at best, so
+  both gates are NOT met; stopped for the user's rulings and fresh labels
+  (DECISIONS.md). The backup to GitHub hasn't happened yet, so no merge,
+  move or delete has been done.
 
 ## Hard constraints
 - (Changed 2026-09-30 by the user: the old "plain JavaScript, no bundler"
