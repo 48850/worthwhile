@@ -1,10 +1,11 @@
 // scripts/export-titles.console.js
 //
 // Paste into the DevTools console (F12 -> Console) on the YouTube home page.
-// Copies every loaded video card to the clipboard as CSV rows:
-//   "title","channel",
-// with my_verdict left blank, ready to paste under the header of titles.csv
-// or holdout.csv. Scroll down first: only cards YouTube has loaded count.
+// Copies every loaded video card to the clipboard as CSV, header included:
+//   video_id,title,channel,my_verdict,junk
+// with my_verdict and junk left blank for you to fill in (show / hide, and
+// yes / no), ready to save as a new labelled set for `npm run eval`.
+// Scroll down first: only cards YouTube has loaded count.
 //
 // The SELECTORS block is written to be copied into sites/youtube-desktop/selectors.ts
 // for M2. Everything after it is only for this export.
@@ -139,9 +140,10 @@
     channelVia[item.channelVia] = (channelVia[item.channelVia] || 0) + 1;
   }
 
-  // CSV: always quote, double any quotes inside. Third column (my_verdict) blank.
+  // CSV: always quote, double any quotes inside. my_verdict and junk blank.
+  // The video ID lets the eval look each video up the way the server does.
   const quote = (s) => '"' + s.replace(/"/g, '""') + '"';
-  const csv = rows.map((r) => `${quote(r.title)},${quote(r.channel)},`).join('\n') + '\n';
+  const csv = 'video_id,title,channel,my_verdict,junk\n' + rows.map((r) => `${quote(r.videoId)},${quote(r.title)},${quote(r.channel)},,`).join('\n') + '\n';
 
   // Keep results reachable from the console after the snippet finishes.
   window.__wwCsv = csv;

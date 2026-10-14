@@ -181,8 +181,8 @@ stores.localStore.onChanged?.((changes) => {
   if (changes.collectedShorts) showCollected((changes.collectedShorts.newValue as CollectedShort[]) || []);
 });
 
-// CSV for scripts/score-test.js --shorts: video_id, title, channel, my_verdict
-// (blank, to fill in), and the queue check.
+// CSV for npm run eval (and scripts/score-test.js --shorts): video_id, title,
+// channel, my_verdict and junk (blank, to fill in), and the queue check.
 byId('copy-shorts').addEventListener('click', async () => {
   const { collectedShorts } = await stores.loadLocal();
   const quote = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -192,12 +192,13 @@ byId('copy-shorts').addEventListener('click', async () => {
       s.title,
       s.channel,
       '',
+      '',
       s.queued === 'yes' ? (s.lead != null ? `queued ${s.lead}s ahead` : `queued ${s.ahead ?? '?'} ahead`) : s.queued === 'no' ? 'not queued' : 'unknown',
     ]
       .map(quote)
       .join(','),
   );
-  const csv = ['video_id,title,channel,my_verdict,queue_check', ...rows].join('\n') + '\n';
+  const csv = ['video_id,title,channel,my_verdict,junk,queue_check', ...rows].join('\n') + '\n';
   try {
     await navigator.clipboard.writeText(csv);
     copyStatus.textContent = `Copied ${rows.length} rows.`;
