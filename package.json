@@ -9,8 +9,10 @@
   "scripts": {
     "dev": "node scripts/dev.js",
     "score-test": "node scripts/score-test.js",
+    "eval": "node scripts/run-ts.mjs scripts/eval.ts",
     "build": "node scripts/check-boundaries.mjs && node scripts/build.mjs",
     "build:dev": "node scripts/check-boundaries.mjs && node scripts/build.mjs --dev",
+    "build:local": "node scripts/check-boundaries.mjs && node scripts/build.mjs --local",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "check:boundaries": "node scripts/check-boundaries.mjs"
@@ -20,6 +22,7 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.3.4",
+    "@types/node": "^22.20.5",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
     "vitest": "^5.0.2"

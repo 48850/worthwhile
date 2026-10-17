@@ -6,6 +6,8 @@
 //
 //   npm run build          production build
 //   npm run build:dev      development build (logs analytics events)
+//   --local                use the local Worker (http://127.0.0.1:8787) instead
+//                          of the deployed one: npm run build:local
 //
 // Every bundle is an IIFE: no modules at run time, nothing leaks into the
 // page's globals. The iOS bundle must never mention chrome.*; the build
@@ -19,12 +21,18 @@ import * as esbuild from 'esbuild';
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
 const dev = process.argv.includes('--dev');
+const local = process.argv.includes('--local');
+
+// The Worker the extension talks to (adapters/chrome/config.ts).
+const DEPLOYED_API = 'https://worthwhile.worthwhile-worker.workers.dev';
+const LOCAL_API = 'http://127.0.0.1:8787';
+const apiBaseUrl = local ? LOCAL_API : DEPLOYED_API;
 
 const common = {
   bundle: true,
   format: 'iife',
   target: ['chrome120', 'safari16'],
-  define: { __DEV__: String(dev) },
+  define: { __DEV__: String(dev), __API_BASE_URL__: JSON.stringify(apiBaseUrl) },
   legalComments: 'none',
   logLevel: 'warning',
   minify: false, // readable bundles: easier to debug and to review
@@ -60,7 +68,7 @@ for (const [from, to] of [
 ]) {
   fs.copyFileSync(path.join(ROOT, from), path.join(chromeOut, to));
 }
-console.log(`Built dist/chrome${dev ? ' (development)' : ''}.`);
+console.log(`Built dist/chrome${dev ? ' (development)' : ''}, talking to ${apiBaseUrl}.`);
 
 // ---------------------------------------------------------------------------
 // dist/ios/filter.js
