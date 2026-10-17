@@ -5,6 +5,9 @@ A Chrome/Edge extension (Manifest V3) that filters the YouTube web feed against
 the user's own definition of worthwhile content. It hides slop, ragebait and
 clickbait, surfaces content matching the user's interests (e.g. chess, maths,
 science, literature, theatre), and measures whether sessions felt worth it.
+Planned: a native iOS app that loads m.youtube.com in a WKWebView and injects
+the same filter (dist/ios/filter.js). The code is structured for both
+(2026-09-30); the app itself isn't built.
 
 ## Status
 - M1 (scoring test): built and approved. Tuning run on titles.csv: 93.7% at
@@ -53,16 +56,37 @@ science, literature, theatre), and measures whether sessions felt worth it.
     filter on), the popup lock (panel instead of switching off, 60 s
     countdown and a 10-character reason both required, then off and
     unlocked; the reason isn't stored).
+- Restructure for Chrome + iOS (2026-09-30, branch `restructure`): the
+  extension moved from plain JS to TypeScript in core/, sites/, adapters/,
+  contracts/, built with esbuild into dist/chrome and dist/ios/filter.js.
+  Chrome behaviour unchanged, checked side by side against the old
+  extension (snapshot) on test pages and in Node: home feed (10 snapshots
+  incl. corrections, Hide channel, Tell YouTube, re-score, offline),
+  sidebar, Shorts removal (all cases), rating and fatigue cards, popup
+  (incl. the lock), options page, background worker (124 events: replies,
+  requests byte for byte, badge, alarms, storage). All identical. 52 Vitest
+  tests on core. iOS: filter.js smoke-tested with a fake app bridge.
+  Parked separately: branch `wip/effectiveness` (scoring experiments, not
+  ready) and the deployment switch-over (extension -> deployed Worker).
 - M5: not started. Wait for go-ahead after each milestone.
 
 ## Hard constraints
-- Extension in plain JavaScript, NO bundler or build step. The /extension folder
-  must load directly via "Load unpacked" in Chrome and Edge.
+- (Changed 2026-09-30 by the user: the old "plain JavaScript, no bundler"
+  rule is replaced.) TypeScript, built with esbuild: `npm run build` makes
+  dist/chrome (load that folder unpacked) and dist/ios/filter.js.
+- core/, sites/ and contracts/ never touch chrome.* or window.webkit: host
+  APIs only through core/interfaces.ts (Storage, Messaging, SiteAdapter,
+  Classifier, HttpClient), implemented in adapters/. Checked on every build
+  (scripts/check-boundaries.mjs). The build fails if dist/ios/filter.js
+  contains "chrome." or "chrome?.".
+- Never block ads or hide YouTube branding.
 - No API keys in the extension. All model and YouTube API calls go through the backend.
 - Backend: Cloudflare Worker (wrangler) with D1 for everything stored: score
   cache, search cache and session logs. No KV (decided 2026-09-23, see Decisions).
 - Model: Anthropic API, model "claude-haiku-4-5-20251001", key stored as a Worker secret.
-- ALL YouTube DOM selectors live in one file: extension/selectors.js.
+- ALL YouTube DOM selectors live in one file per site:
+  sites/youtube-desktop/selectors.ts (youtube.com) and
+  sites/youtube-mobile/selectors.ts (m.youtube.com, all TODO).
 - YouTube is a single-page app: handle navigation with the yt-navigate-finish
   event, not page loads.
 - Privacy: log counts, durations and ratings only. Never log titles or video IDs
@@ -74,31 +98,54 @@ science, literature, theatre), and measures whether sessions felt worth it.
   cache write or log write is ignored.
 
 ## Repo layout
-/extension   manifest.json, content.js, selectors.js, background.js,
-             popup.html, popup.js, options.html, options.js, styles.css,
-             settings.js (defaults + loadSettings, and the device-only lists
-               openedChannels / notInterested, shared by all parts),
-             chips.js (interests editor used by popup and options),
-             ui.css (popup/options styles; styles.css is injected into YouTube),
-             common.js (helpers shared by the content scripts, prefixed ww),
-             notinterested.js (YouTube "Not interested" via the card's ⋮ menu),
-             watch.js (/watch sidebar filter + records opened channels),
-             shorts.js (/shorts: removes clear bait from YouTube's upcoming
-               list, optional label, Collect Shorts),
-             shorts-main.js (runs in YouTube's page context: reads and
-               filters the upcoming-Shorts list, reports the Short playing)
+/core        pure logic, no host APIs and no DOM selectors:
+               types.ts (FeedItem, Classification, Decision), interfaces.ts
+               (Storage, Messaging, SiteAdapter, Classifier, HttpClient),
+               settings.ts (defaults + stores helpers), profile.ts (taste
+               profile: validate, load with cache, fallback, -> server
+               profile), decide.ts (show / hide / hallmark), classifier.ts
+               (server client + the old error handling), host.ts (the host
+               side of every app message: scoring, sourcing, server checks,
+               sessions, events, profile; run by Chrome's background and by
+               iOS filter.js), session.ts (M4 sessions), events.ts (event
+               emitter + receipt tally), feed-filter.ts (generic filter over a
+               SiteAdapter; the iOS path), shorts-sequence.ts, counts.ts,
+               json-schema.ts, util.ts, config.ts
+/sites/youtube-desktop  youtube.com: selectors.ts (every desktop selector),
+               adapter.ts (SiteAdapter for the home grid), feed.ts (home feed:
+               in-place filtering, bar, drawer, Worth your time, corrections,
+               Tell YouTube), watch.ts (sidebar), shorts.ts + shorts-page.ts
+               (Shorts removal; the latter runs in YouTube's page world),
+               behaviour.ts (heartbeat, rating and fatigue cards),
+               notinterested.ts, env.ts (what page code gets from the host),
+               styles.css
+/sites/youtube-mobile   m.youtube.com: same interface, stubbed with TODOs
+/adapters/chrome        manifest.json, platform.ts (chrome.* implementations of
+               Storage/Messaging/HttpClient), content.ts + page.ts
+               (bootstraps), background.ts (badge, lock, alarm, receipt around
+               core/host), config.ts (apiBaseUrl), ui/ (popup, options,
+               chips, ui.css)
+/adapters/ios-webview   bootstrap.ts (entry of filter.js), bridge.ts
+               (window.webkit.messageHandlers.worthwhile,
+               __WORTHWHILE_CONFIG__, window.__worthwhile.receive),
+               platform.ts, README.md (the Swift side: every message)
+/contracts   taste-profile.ts + taste-profile.schema.json (the website's
+             GET /api/taste-profile), messages.ts (app and bridge messages),
+             events.ts (analytics events, ReceiptCounts)
+/tests       Vitest unit tests for core (`npm test`)
+/dist        build output (gitignored): chrome/ and ios/filter.js
 /worker      src/index.js (HTTP, auth, validation), src/score.js (cache + model),
-             src/source.js (M3), wrangler.toml, schema.sql, dev.js (local run),
-             package.json (wrangler + SDK)
-/scripts     new-invite.js: makes an invite token and prints the D1 insert;
-             edge-cases.csv: 40-title prompt regression suite (run after
-             any prompt change)
+             src/source.js (M3), src/shorts.js, src/sessions.js,
+             wrangler.toml, schema.sql, dev.js (local run),
+             package.json (wrangler + SDK). Still plain JS (server side).
 /shared      prompt.js (scoring prompt, used by the worker AND the test script)
-/scripts     score-test.js, titles.csv (tuning set), holdout.csv (never tuned on),
-             profile.json, export-titles.console.js (DevTools snippet: copies
-             home-feed cards as CSV rows; its SELECTORS block seeds selectors.js)
-package.json root: "type": "module" and the @anthropic-ai/sdk dependency.
-             The extension ignores it.
+/scripts     build.mjs, check-boundaries.mjs, dev.js, new-invite.js,
+             score-test.js, titles.csv (tuning set), holdout.csv (spent),
+             edge-cases.csv (40-title regression suite: run after any prompt
+             change), shorts*.csv, profile.json, export-titles.console.js
+             (DevTools snippet; its SELECTORS block seeds selectors.ts)
+package.json root: build/test scripts, TypeScript, esbuild, Vitest,
+             @types/chrome, and the @anthropic-ai/sdk for scripts.
 .env         ANTHROPIC_API_KEY for local scripts (gitignored; template in .env.example)
 CLAUDE.md    this spec; keep it updated as decisions change
 
@@ -507,7 +554,7 @@ M4 — Behaviour layer.
     (privacy rule: counts, durations and ratings only).
   - Deploying needs `npm run db:remote` again for the sessions table.
 
-M5 — Tester build. A script that zips /extension for distribution, a README with
+M5 — Tester build. A script that zips dist/chrome for distribution, a README with
 install steps for Chrome and Edge, and a token-protected stats endpoint showing
 average rating and sessions per week, filter on vs off.
 
@@ -593,6 +640,34 @@ Design rules that keep it cheap:
   interested" item.
 
 ## Decisions log
+2026-09-30 (restructure for Chrome + iOS)
+- TypeScript + esbuild; bundles are IIFEs (nothing leaks into the page's
+  globals). The Worker and shared/prompt.js stay JavaScript: server side,
+  outside the target structure, and scoring must not change.
+- Storage has an optional onChanged besides get/set: the extension relies on
+  a setting changed in the popup applying at once in every YouTube tab.
+  SiteAdapter also has showItem (the reveal needs it).
+- Taste profile: the contract is exact (additionalProperties: false), so a
+  website profile with unknown fields fails validation and isn't used (fail
+  safe). Signed out (no 'authToken'), the Chrome extension builds its
+  fallback from its own settings, and the server receives exactly what it
+  always did (tested). A website profile is written into the rubric
+  ("Always hide: ...", respected channels, Shorts policy) and applied
+  locally by decide().
+- Hallmark = the server says show and interest >= 8, substance >= 7,
+  bait <= 3, or the channel is a respected creator. Chrome marks it with
+  data-ww-hallmark but gives it no style yet, so nothing looks different.
+- Ratings: 4-5 = rated_worth_it, 1-3 = rated_not_worth_it (a 3 isn't a yes).
+  The rating joins the ended session's receipt (it's asked on the next visit).
+- Events aren't sent anywhere: Chrome tallies them in the background worker
+  (memory) and logs them in dev builds; iOS tallies them and passes them to
+  the app over the bridge.
+- iOS: tokens never enter the page. Requests say which auth they need
+  ('invite' or 'account') and the app adds the token. The page only sees
+  "token is set".
+- m.youtube.com selectors are not guessed; they stay TODO until checked on a
+  real page.
+
 2026-09-23
 - Project lives at C:\Users\ellio\dev\worthwhile (outside OneDrive), git repo.
 - The model returns scores only. show/hide is computed in code (verdictFor), and
@@ -618,6 +693,23 @@ Design rules that keep it cheap:
 - M2: on any scoring error the affected cards drop their old verdict and are
   shown, even if they were hidden before (the "Showing everything" notice is
   literally true).
+
+## Known bugs (found in the 2026-09-30 audit; listed, not fixed)
+1. Channels opened from YouTube's own home feed are never recorded:
+   watch.ts records a channel only when `opened.pending` is set, and nothing
+   sets it since the feed stopped drawing its own grid. Only "Worth your
+   time" tile clicks record channels, so channel sourcing gets little input.
+2. Dead code: readShortsQueue and the shortsQueueSlot/Thumb selectors.
+3. Two YouTube tabs can lose each other's session counts: the session is
+   read, changed and written per heartbeat, with no locking.
+4. "Hide channel" keeps up to 200 names in one chrome.storage.sync key, near
+   Chrome's 8 KB per-key limit. A failed write reaches feed.ts's error
+   handler and switches the filter off for the page.
+5. A failed POST /session marks the server "offline" (toolbar "!" and the
+   popup notice), even when scoring works.
+6. The feed prompt always describes the strict rule ("hidden if bait >= 6,
+   or if interest_match < 4 and substance < 6"), even under the default bait
+   rule. May bias scores; unchanged since M1.
 
 ## Local development
 - Node 22 (needs >= 20.12 for process.loadEnvFile). `npm install` once in the root.
@@ -646,9 +738,13 @@ Design rules that keep it cheap:
   environment variables through (CLOUDFLARE_INCLUDE_PROCESS_ENV), which is how
   ANTHROPIC_API_KEY reaches the local Worker. Don't create a .dev.vars file,
   or that pass-through stops. Wrangler prints env values as "(hidden)".
-- Extension: chrome://extensions (or edge://extensions) → Developer mode →
-  Load unpacked → the /extension folder. After editing extension files, click
-  the reload icon on its card, then reload YouTube.
+- Extension: `npm run build` (or `npm run build:dev` to log analytics events
+  in the background worker's console), then chrome://extensions →
+  Developer mode → Load unpacked → dist/chrome. After a rebuild, click the
+  reload icon on its card, then reload YouTube. (Before 2026-09-30 it was the
+  /extension folder, which no longer exists.)
+- `npm test` runs the core unit tests; `npm run typecheck` runs tsc.
+- iOS: dist/ios/filter.js; see adapters/ios-webview/README.md.
 - Worker free-plan CPU limit is 10 ms per request (network waits don't
   count). Check real usage in the Cloudflare dashboard after deploying.
 - Label titles in a spreadsheet and save as "CSV UTF-8" so curly quotes and

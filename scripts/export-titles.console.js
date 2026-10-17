@@ -6,13 +6,13 @@
 // with my_verdict left blank, ready to paste under the header of titles.csv
 // or holdout.csv. Scroll down first: only cards YouTube has loaded count.
 //
-// The SELECTORS block is written to be copied into extension/selectors.js
+// The SELECTORS block is written to be copied into sites/youtube-desktop/selectors.ts
 // for M2. Everything after it is only for this export.
 //
 // Not run by Node; it's plain browser JavaScript. Safe to paste more than once.
 
 (() => {
-  // ===== SELECTORS: reuse in extension/selectors.js ========================
+  // ===== SELECTORS: reuse in sites/youtube-desktop/selectors.ts ============
   const SELECTORS = {
     // The home feed. After in-app navigation YouTube keeps previously visited
     // pages in the DOM (hidden), so only search inside this.

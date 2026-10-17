@@ -25,7 +25,7 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WORKER = path.join(ROOT, 'worker');
 const STATE = path.join(WORKER, '.wrangler');
 const TOKEN_FILE = path.join(STATE, 'local-invite-token.txt');
-const PORT = 8787; // must match WORKER_URL in extension/background.js
+const PORT = 8787; // must match apiBaseUrl in adapters/chrome/config.ts
 
 main().catch((err) => {
   console.error(`\nError: ${err.message}`);
