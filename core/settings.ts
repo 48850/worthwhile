@@ -96,6 +96,10 @@ export interface CollectedShort {
   ahead?: number;
   verdictReady?: boolean;
   at: number;
+  // The user's own label, set with a key while the Short plays (shorts.ts):
+  // S = show, H = hide, J = junk (hide, and junk). Missing = not labelled.
+  verdict?: 'show' | 'hide';
+  junk?: boolean;
 }
 
 export interface RemovedShort {

@@ -17,12 +17,15 @@
 //    channel) on this device, with whether YouTube's list had named it, how
 //    many seconds before, and whether its verdict was ready in time. The
 //    options page copies them as CSV. Works with the filter on or off.
+//    While collecting, a key labels the Short on screen: S show, H hide,
+//    J junk (hide, and junk). The label goes into the CSV, so no spreadsheet
+//    is needed.
 // Ported unchanged from extension/shorts.js; Shorts shown and removed are
 // also emitted as events.
 
 import { tally } from '../../core/counts';
 import { shouldRemoveShort } from '../../core/decide';
-import { DEFAULT_SETTINGS, type Settings } from '../../core/settings';
+import { DEFAULT_SETTINGS, type CollectedShort, type Settings } from '../../core/settings';
 import { sleep, VIDEO_ID, waitFor } from '../../core/util';
 import { el } from './dom';
 import type { PageEnv } from './env';
@@ -31,6 +34,14 @@ import { SELECTORS } from './selectors';
 const ANSWER_WITHIN_MS = 3000; // shorts-page.ts gives up at 3.5 s and removes nothing
 const SCORE_BATCH = 20; // the Worker's limit per /score-shorts request
 const MAX_COLLECTED = 500;
+// Collect Shorts: the keys that label the Short on screen.
+type ShortLabel = { verdict: 'show' | 'hide'; junk: boolean };
+const LABEL_KEYS: Record<string, ShortLabel & { text: string }> = {
+  s: { verdict: 'show', junk: false, text: 'Show' },
+  h: { verdict: 'hide', junk: false, text: 'Hide' },
+  j: { verdict: 'hide', junk: true, text: 'Junk' },
+};
+const TAG_MS = 1200; // how long the "Labelled: ..." tag stays up
 // Fatigue (M4): Shorts swiped away within FAST_SKIP_MS, in a row. At
 // FAST_SKIPS, behaviour.ts may offer to switch the filter on.
 const FAST_SKIP_MS = 3000;
@@ -48,6 +59,13 @@ export function startShorts(env: PageEnv, offerFilter: (reason: string) => void)
   let currentId: string | null = null; // the Short on screen; null when not on a Short
   let arrivedAt = 0;
   let fastSkips = 0;
+  // Collect Shorts: labels pressed before the Short's entry was written
+  // (it waits for the player's report), merged in when it is.
+  const pendingLabels = new Map<string, ShortLabel>();
+  // Every change to collectedShorts goes through this chain, one at a time,
+  // so a label and an arrival can't overwrite each other's write.
+  let collectWrites: Promise<void> = Promise.resolve();
+  let tagTimer: ReturnType<typeof setTimeout> | undefined;
 
   // ---------------------------------------------------------------------------
   // Messages from shorts-page.ts (page messages are untrusted: check shapes)
@@ -105,6 +123,7 @@ export function startShorts(env: PageEnv, offerFilter: (reason: string) => void)
     arrive();
   });
   document.addEventListener('yt-navigate-finish', () => arrive());
+  window.addEventListener('keydown', onLabelKey, true); // capture: before YouTube's own shortcuts
   env.stores.localStore.onChanged?.((changes) => {
     if (changes.corrections) scores.clear(); // corrections are part of the prompt
   });
@@ -218,9 +237,62 @@ export function startShorts(env: PageEnv, offerFilter: (reason: string) => void)
   async function collectArrival(id: string, arrival: { queued: 'yes' | 'no' | 'unknown'; lead: number | null; verdictReady: boolean }): Promise<void> {
     const playing = await waitFor(() => nowPlaying.get(id), 4000);
     if (!playing) return;
-    const { collectedShorts } = await env.stores.loadLocal();
-    if (collectedShorts.some((s) => s.id === id)) return;
-    const entry = { id, title: playing.title, channel: playing.channel, ...arrival, at: Date.now() };
-    await env.stores.localStore.set({ collectedShorts: [...collectedShorts, entry].slice(-MAX_COLLECTED) });
+    await updateCollected((list) => {
+      if (list.some((s) => s.id === id)) return list;
+      const entry = { id, title: playing.title, channel: playing.channel, ...arrival, at: Date.now(), ...pendingLabels.get(id) };
+      pendingLabels.delete(id);
+      return [...list, entry].slice(-MAX_COLLECTED);
+    });
+  }
+
+  // Reads collectedShorts, applies the change, writes it back: one change
+  // at a time (see collectWrites). A failed write is ignored.
+  function updateCollected(change: (list: CollectedShort[]) => CollectedShort[]): Promise<void> {
+    collectWrites = collectWrites
+      .then(async () => {
+        const { collectedShorts } = await env.stores.loadLocal();
+        const next = change(collectedShorts);
+        if (next !== collectedShorts) await env.stores.localStore.set({ collectedShorts: next });
+      })
+      .catch(() => {});
+    return collectWrites;
+  }
+
+  // S / H / J while collecting: label the Short on screen. A second key
+  // replaces the first. Ignored while typing (search box, comments) and
+  // with Ctrl, Alt or Cmd held.
+  function onLabelKey(event: KeyboardEvent): void {
+    if (!settings.collectShorts || !currentId) return;
+    if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+    const target = event.target as HTMLElement | null;
+    if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+    const key = LABEL_KEYS[event.key.toLowerCase()];
+    if (!key) return;
+    event.preventDefault();
+    event.stopImmediatePropagation(); // so YouTube doesn't also act on the key
+    const id = currentId;
+    const label: ShortLabel = { verdict: key.verdict, junk: key.junk };
+    pendingLabels.set(id, label); // used if the entry isn't written yet
+    updateCollected((list) => {
+      if (!list.some((s) => s.id === id)) return list;
+      pendingLabels.delete(id);
+      return list.map((s) => (s.id === id ? { ...s, ...label } : s));
+    });
+    showTag(`Labelled: ${key.text}`);
+  }
+
+  // A small tag at the top left of the player for TAG_MS, confirming the key.
+  function showTag(text: string): void {
+    let tag = document.getElementById('ww-shorts-tag');
+    if (!tag) {
+      tag = el('div', { id: 'ww-shorts-tag' });
+      document.documentElement.appendChild(tag);
+    }
+    tag.textContent = text;
+    const rect = document.querySelector(SELECTORS.shortsPlayer)?.getBoundingClientRect();
+    tag.style.top = `${Math.max(rect && rect.height ? rect.top + 12 : 72, 64)}px`;
+    tag.style.left = `${rect && rect.width ? rect.left + 12 : 24}px`;
+    clearTimeout(tagTimer);
+    tagTimer = setTimeout(() => tag?.remove(), TAG_MS);
   }
 }

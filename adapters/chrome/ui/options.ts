@@ -168,8 +168,9 @@ function showCollected(list: CollectedShort[]): void {
     .sort((a, b) => a - b);
   const median = leads.length ? leads[Math.floor(leads.length / 2)] : null;
   const shortest = leads.length ? leads[0] : null;
+  const labelled = list.filter((s) => s.verdict).length;
   collectStatus.textContent =
-    `Collected ${list.length} Short${list.length === 1 ? '' : 's'}.` +
+    `Collected ${list.length} Short${list.length === 1 ? '' : 's'}, ${labelled} labelled.` +
     (checked.length
       ? ` The queue listed ${queued.length} of ${checked.length} in advance (${Math.round((100 * queued.length) / checked.length)}%)` +
         (median != null ? `, typically ${median} s before they played (shortest ${shortest} s).` : '.')
@@ -191,8 +192,8 @@ byId('copy-shorts').addEventListener('click', async () => {
       s.id,
       s.title,
       s.channel,
-      '',
-      '',
+      s.verdict ?? '', // labelled with S / H / J while collecting, else blank to fill in
+      s.junk == null ? '' : s.junk ? 'yes' : 'no',
       s.queued === 'yes' ? (s.lead != null ? `queued ${s.lead}s ahead` : `queued ${s.ahead ?? '?'} ahead`) : s.queued === 'no' ? 'not queued' : 'unknown',
     ]
       .map(quote)

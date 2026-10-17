@@ -259,8 +259,10 @@ html.ww-on #ww-feed {
   background: rgba(0, 0, 0, 0.9);
 }
 
-/* "Worthwhile: bait" label on Shorts (shorts.ts, only when switched on) */
-#ww-shorts-label {
+/* "Worthwhile: bait" label on Shorts (shorts.ts, only when switched on), and
+   the "Labelled: ..." tag after a Collect Shorts key */
+#ww-shorts-label,
+#ww-shorts-tag {
   position: fixed;
   z-index: 2000;
   padding: 4px 10px;

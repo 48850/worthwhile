@@ -441,7 +441,13 @@ and auto-advance if it fails.
     seconds before it played (queuedDom keeps the DOM check for
     comparison). The options page summarises "listed N of M in advance"
     (network-checked rows only) and copies CSV:
-    video_id, title, channel, my_verdict, queue_check.
+    video_id, title, channel, my_verdict, junk, queue_check.
+    Labelling keys (2026-10-17): while collecting, S / H / J on a Short
+    label it show / hide / junk (hide + junk); a second key replaces the
+    first; ignored while typing or with Ctrl/Alt/Cmd. The labels fill
+    my_verdict and junk in the CSV. A key pressed before the Short's entry
+    is written is kept and merged in; all writes to collectedShorts go
+    through one queue. Checked in Chromium on a mock Shorts page.
   - The sequence includes ads, not only Shorts: e.g. an entry whose
     videos.list channel is "Video ad upload channel for …". Worth
     handling in Phase 2 (don't count them, or treat them as bait).
